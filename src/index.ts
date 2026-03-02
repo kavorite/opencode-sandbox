@@ -1,60 +1,121 @@
-import type { PluginInput, Hooks, Plugin } from "@opencode-ai/plugin"
-import * as config from "./config"
-import * as deps from "./deps"
-import * as store from "./store"
-import * as sandbox from "./sandbox"
-import * as policy from "./policy"
+import path from "path";
+import type { PluginInput, Hooks, Plugin } from "@opencode-ai/plugin";
+import * as config from "./config";
+import * as deps from "./deps";
+import * as store from "./store";
+import * as sandbox from "./sandbox";
+import * as policy from "./policy";
 
-const plugin: Plugin = async (input: PluginInput): Promise<Hooks> => {
-  const available = await deps.check()
-  if (!available.available) return {}
+function bash(
+  info: {
+    id: string;
+    pattern?: string | string[];
+    metadata?: Record<string, unknown>;
+    callID?: string;
+  },
+  output: { status: string },
+  cfg: config.SandboxConfig,
+  project: string,
+  directory: string,
+  available: Awaited<ReturnType<typeof deps.check>>,
+) {
+  const command =
+    (info.metadata?.command as string) ||
+    (Array.isArray(info.pattern)
+      ? info.pattern.join(" ; ")
+      : (info.pattern ?? ""));
+  const cwd = (info.metadata?.cwd as string) || directory;
 
-  const cfg = await config.load(input.directory)
-  const project = input.directory
-  return {
-    "permission.ask": async (info, output) => {
-      try {
-        if (info.type !== "bash") {
-          return
-        }
+  return sandbox.run(command, cwd, cfg, available).then((result) => {
+    const violations = policy.evaluate(result, cfg, project);
+    store.set(info.callID ?? info.id, { ...result, violations });
 
-        const command = (info.metadata?.command as string) || (Array.isArray(info.pattern) ? info.pattern.join(" ; ") : info.pattern ?? "")
-        const cwd = (info.metadata?.cwd as string) || input.directory
+    if (cfg.verbose) {
+      console.log(
+        `[sandbox] id=${info.id} violations=${violations.length} timedOut=${result.timedOut} duration=${result.duration}ms dns=${result.dns.length} tls=${result.tls.length} http=${result.http.length} net=${result.network.length}`,
+      );
+    }
 
-        const result = await sandbox.run(command, cwd, cfg, available)
-        const violations = policy.evaluate(result, cfg, project)
-        store.set(info.callID ?? info.id, { ...result, violations })
+    if (result.timedOut) return;
 
-        if (cfg.verbose) {
-          console.log(
-            `[sandbox] id=${info.id} violations=${violations.length} timedOut=${result.timedOut} duration=${result.duration}ms dns=${result.dns.length} tls=${result.tls.length} http=${result.http.length} net=${result.network.length}`,
-          )
-        }
+    const proxy =
+      cfg.network.allow_methods && cfg.network.allow_methods.length > 0;
+    const network =
+      result.dns.length > 0 ||
+      result.tls.length > 0 ||
+      result.network.length > 0;
+    if (proxy && network && result.http.length === 0 && result.ssh.length === 0)
+      return;
 
-        if (result.timedOut) {
-          return
-        }
+    if (violations.length === 0 && cfg.auto_allow_clean) {
+      output.status = "allow";
+      return;
+    }
 
-        const proxy = cfg.network.allow_methods && cfg.network.allow_methods.length > 0
-        const network = result.dns.length > 0 || result.tls.length > 0 || result.network.length > 0
-        if (proxy && network && result.http.length === 0 && result.ssh.length === 0) {
-          return
-        }
+    if (cfg.verbose && violations.length > 0) {
+      const report = violations
+        .map((v) => `[${v.severity}] ${v.type}: ${v.detail}`)
+        .join("\n");
+      console.log(`[sandbox] violations for ${info.id}:\n${report}`);
+    }
+  });
+}
 
-        if (violations.length === 0 && cfg.auto_allow_clean) {
-          output.status = "allow"
-          return
-        }
+function edit(
+  info: { id: string; metadata?: Record<string, unknown> },
+  output: { status: string },
+  cfg: config.SandboxConfig,
+  project: string,
+) {
+  const filepath = info.metadata?.filepath as string | undefined;
+  if (!filepath) return;
 
-        if (cfg.verbose && violations.length > 0) {
-          const report = violations.map((v) => `[${v.severity}] ${v.type}: ${v.detail}`).join("\n")
-          console.log(`[sandbox] violations for ${info.id}:\n${report}`)
-        }
-      } catch (err) {
-        console.error("[sandbox] ERROR in permission.ask:", err)
-      }
-    },
+  const targets = filepath.includes(", ") ? filepath.split(", ") : [filepath];
+  const violations: store.Violation[] = targets
+    .map((t) => (path.isAbsolute(t) ? t : path.resolve(project, t)))
+    .filter(
+      (t) =>
+        !policy.writable(t, path.resolve(project), cfg.filesystem.allow_write),
+    )
+    .map(
+      (t): store.Violation => ({
+        type: "filesystem",
+        syscall: "write",
+        detail: `Edit to ${t} (outside project)`,
+        severity: "medium",
+      }),
+    );
+
+  if (cfg.verbose && violations.length > 0) {
+    const report = violations
+      .map((v) => `[${v.severity}] ${v.type}: ${v.detail}`)
+      .join("\n");
+    console.log(`[sandbox] edit violations for ${info.id}:\n${report}`);
+  }
+
+  if (violations.length === 0 && cfg.auto_allow_clean) {
+    output.status = "allow";
+    return;
   }
 }
 
-export default plugin
+const plugin: Plugin = async (input: PluginInput): Promise<Hooks> => {
+  const available = await deps.check();
+  if (!available.available) return {};
+
+  const cfg = await config.load(input.directory);
+  const project = input.directory;
+  return {
+    "permission.ask": async (info, output) => {
+      try {
+        if (info.type === "bash")
+          return bash(info, output, cfg, project, input.directory, available);
+        if (info.type === "edit") return edit(info, output, cfg, project);
+      } catch (err) {
+        console.error("[sandbox] ERROR in permission.ask:", err);
+      }
+    },
+  };
+};
+
+export default plugin;

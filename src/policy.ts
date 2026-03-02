@@ -6,7 +6,7 @@ const TMPFS = ["/tmp", "/dev/shm"]
 // Paths used by the sandbox's own CA injection — not user-initiated writes
 const SANDBOX_INFRA = ["/newroot", "/etc/ssl", "/etc/pki"]
 
-function writable(target: string, root: string, allow: string[]): boolean {
+export function writable(target: string, root: string, allow: string[]): boolean {
   if (target === root || target.startsWith(root + "/")) return true
   if (TMPFS.some((p) => target === p || target.startsWith(p + "/"))) return true
   if (SANDBOX_INFRA.some((p) => target === p || target.startsWith(p + "/"))) return true
