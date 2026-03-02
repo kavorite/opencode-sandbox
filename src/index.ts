@@ -27,7 +27,8 @@ function bash(
   const cwd = (info.metadata?.cwd as string) || directory;
 
   return sandbox.run(command, cwd, cfg, available).then((result) => {
-    const violations = policy.evaluate(result, cfg, project);
+    const allow = cwd !== project ? [...cfg.filesystem.allow_write, cwd] : cfg.filesystem.allow_write;
+    const violations = policy.evaluate(result, { ...cfg, filesystem: { ...cfg.filesystem, allow_write: allow } }, project);
     store.set(info.callID ?? info.id, { ...result, violations });
 
     if (cfg.verbose) {
