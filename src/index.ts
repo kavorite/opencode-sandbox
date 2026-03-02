@@ -39,13 +39,15 @@ function bash(
 
     if (result.timedOut) return;
 
-    const proxy =
-      cfg.network.allow_methods && cfg.network.allow_methods.length > 0;
-    const network =
+    // Proxy fallback: only when observe mode is actually running (not just configured).
+    // AF_UNIX (docker, dbus, etc.) is local IPC — exclude from internet traffic check.
+    const observe = cfg.network.mode === "observe" && available.observe;
+    const proxy = observe && cfg.network.allow_methods && cfg.network.allow_methods.length > 0;
+    const inet =
       result.dns.length > 0 ||
       result.tls.length > 0 ||
-      result.network.length > 0;
-    if (proxy && network && result.http.length === 0 && result.ssh.length === 0)
+      result.network.some((n) => n.family === "AF_INET" || n.family === "AF_INET6");
+    if (proxy && inet && result.http.length === 0 && result.ssh.length === 0)
       return;
 
     if (violations.length === 0 && cfg.auto_allow_clean) {
