@@ -2,13 +2,22 @@ import path from "path"
 import type { Violation, SandboxResult } from "./store"
 import type { SandboxConfig } from "./config"
 
-const TMPFS = ["/tmp", "/dev/shm"]
+const home = process.env.HOME || "/root"
+
+// Paths safe to mutate inside the COW sandbox — writes are discarded on exit.
+// Virtual filesystems are kernel interfaces; user-state dirs are caches/stores
+// that build tools (pnpm, npm, bun) routinely touch.
+const EPHEMERAL = [
+  "/tmp", "/dev", "/sys", "/proc", "/run",
+  `${home}/.cache`, `${home}/.local`, `${home}/.config`,
+  `${home}/.npm`, `${home}/.bun`, `${home}/.pnpm-store`,
+]
 // Paths used by the sandbox's own CA injection — not user-initiated writes
 const SANDBOX_INFRA = ["/newroot", "/etc/ssl", "/etc/pki"]
 
 export function writable(target: string, root: string, allow: string[]): boolean {
   if (target === root || target.startsWith(root + "/")) return true
-  if (TMPFS.some((p) => target === p || target.startsWith(p + "/"))) return true
+  if (EPHEMERAL.some((p) => target === p || target.startsWith(p + "/"))) return true
   if (SANDBOX_INFRA.some((p) => target === p || target.startsWith(p + "/"))) return true
   if (
     allow.some((p) => {
