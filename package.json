@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json.schemastore.org/package.json",
+  "name": "opencode-sandbox",
+  "version": "0.0.1",
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "typecheck": "tsgo --noEmit",
+    "postinstall": "bun run script/postinstall.ts"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "@opencode-ai/plugin": "^1.2.15",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@tsconfig/bun": "^1.0.9",
+    "@types/node": "^22.0.0",
+    "@types/bun": "^1.2.0",
+    "typescript": "^5.8.0",
+    "@typescript/native-preview": "^7.0.0-dev.20250601"
+  }
+}
