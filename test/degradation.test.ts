@@ -104,7 +104,7 @@ describe("graceful degradation", () => {
       await fs.mkdir(path.join(dir, ".opencode"), { recursive: true })
       await fs.rm(path.join(dir, ".opencode", "sandbox.json"), { force: true })
       const cfg = await config.load(dir, "/nonexistent/global.json")
-      expect(cfg.timeout).toBe(6000)
+      expect(cfg.timeout).toBe(250)
       expect(cfg.auto_allow_clean).toBe(true)
       expect(cfg.verbose).toBe(false)
       expect(cfg.network.mode).toBe("observe")
@@ -119,7 +119,7 @@ describe("graceful degradation", () => {
     test("malformed sandbox.json warns and applies schema defaults", async () => {
       await Bun.write(path.join(tmp, ".opencode", "sandbox.json"), "not json {{{")
       const cfg = await config.load(tmp, "/nonexistent/global.json")
-      expect(cfg.timeout).toBe(6000)
+      expect(cfg.timeout).toBe(250)
       expect(cfg.auto_allow_clean).toBe(true)
       expect(cfg.verbose).toBe(false)
       expect(cfg.network.mode).toBe("observe")
@@ -129,7 +129,7 @@ describe("graceful degradation", () => {
     test("empty object sandbox.json merges with hardcoded defaults", async () => {
       await Bun.write(path.join(tmp, ".opencode", "sandbox.json"), "{}")
       const cfg = await config.load(tmp, "/nonexistent/global.json")
-      expect(cfg.timeout).toBe(6000)
+      expect(cfg.timeout).toBe(250)
       expect(cfg.auto_allow_clean).toBe(true)
       expect(cfg.verbose).toBe(false)
       expect(cfg.network.mode).toBe("observe")

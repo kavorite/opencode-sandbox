@@ -21,7 +21,7 @@ export async function run(
   command: string,
   cwd: string,
   config: SandboxConfig | number,
-  deps?: { observe: boolean },
+  deps?: { observe: boolean; overlay: boolean },
 ): Promise<SandboxResult> {
   // Normalize legacy call signature: run(cmd, cwd, timeout)
   if (typeof config === "number") {
@@ -32,30 +32,16 @@ export async function run(
       auto_allow_clean: true,
       home_readable: true,
       verbose: false,
-    }, { observe: false })
+    }, { observe: false, overlay: false })
   }
 
   const logfile = `/tmp/oc-sandbox-${Date.now()}-${Math.random().toString(36).slice(2)}.log`
   const start = performance.now()
 
   const observe = config.network.mode === "observe" && (deps?.observe ?? false)
+  const overlay = deps?.overlay ?? false
   const proxy = observe && config.network.allow_methods !== undefined
 
-  // When home_readable is false, --tmpfs $HOME wipes everything.
-  // Detect git worktree (.git file) and re-mount the real git dirs.
-  const gitbinds: string[] = []
-  if (!config.home_readable && cwd.startsWith(home)) {
-    const dotgit = path.join(cwd, ".git")
-    const stat = await Bun.file(dotgit).text().catch(() => "")
-    const match = stat.match(/^gitdir:\s*(.+)$/m)
-    if (match && match[1]) {
-      const gitdir = path.resolve(cwd, match[1].trim())
-      if (gitdir.startsWith(home)) gitbinds.push("--ro-bind", gitdir, gitdir)
-      // Also mount the common git dir (has objects, refs, packed-refs)
-      const common = path.dirname(path.dirname(gitdir))
-      if (common !== gitdir && common.startsWith(home)) gitbinds.push("--ro-bind", common, common)
-    }
-  }
   if (config.network.mode === "observe" && !(deps?.observe ?? false) && !warned) {
     console.warn("opencode-sandbox: oc-observe binary not found, falling back to block mode")
     warned = true
@@ -116,14 +102,20 @@ export async function run(
     "/dev",
     "--tmpfs",
     "/tmp",
-    ...(config.home_readable ? ["--ro-bind", home, home] : ["--tmpfs", home]),
+    ...(config.home_readable
+      ? (overlay ? ["--overlay-src", home, "--tmp-overlay", home] : ["--ro-bind", home, home])
+      : ["--tmpfs", home]),
     "--tmpfs",
     "/dev/shm",
     "--tmpfs",
     "/run",
     // When home is tmpfs, re-mount project dir and git worktree dirs
-    ...(!config.home_readable && cwd.startsWith(home) ? ["--ro-bind", cwd, cwd] : []),
-    ...gitbinds,
+    ...(!config.home_readable && cwd.startsWith(home)
+      ? (overlay ? ["--overlay-src", cwd, "--tmp-overlay", cwd] : ["--ro-bind", cwd, cwd])
+      : []),
+    ...(config.home_readable && !cwd.startsWith(home) && overlay && !cwd.startsWith("/tmp") && !cwd.startsWith("/dev") && !cwd.startsWith("/run")
+      ? ["--overlay-src", cwd, "--tmp-overlay", cwd]
+      : []),
     ...(proxy ? [
       ...binds,
       "--ro-bind", path.join(bindir, "ca.pem"), "/tmp/mitm-ca.pem",
@@ -301,6 +293,8 @@ export async function run(
 
     return {
       ...parsed,
+      // Filter bwrap overlayfs internal dirs (relative paths like tmp-overlay-upper-0)
+      mutations: parsed.mutations.filter(m => m.path.startsWith("/")),
       dns: observe ? dns : parsed.dns,
       http,
       tls,
