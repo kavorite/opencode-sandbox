@@ -11,14 +11,15 @@ const plugin: Plugin = async (input: PluginInput): Promise<Hooks> => {
 
   const cfg = await config.load(input.directory)
   const project = input.directory
-
   return {
     "permission.ask": async (info, output) => {
       try {
-        if (info.type !== "bash") return
+        if (info.type !== "bash") {
+          return
+        }
 
-        const command = Array.isArray(info.pattern) ? info.pattern.join(" ") : info.pattern ?? ""
-        const cwd = input.directory
+        const command = (info.metadata?.command as string) || (Array.isArray(info.pattern) ? info.pattern.join(" ; ") : info.pattern ?? "")
+        const cwd = (info.metadata?.cwd as string) || input.directory
 
         const result = await sandbox.run(command, cwd, cfg, available)
         const violations = policy.evaluate(result, cfg, project)
@@ -30,14 +31,15 @@ const plugin: Plugin = async (input: PluginInput): Promise<Hooks> => {
           )
         }
 
-        // Timed out — incomplete observations, don't auto-approve
-        if (result.timedOut) return
+        if (result.timedOut) {
+          return
+        }
 
-        // Observe+proxy mode: network activity without HTTP entries means the proxy
-        // didn't complete the TLS handshake — we can't verify the HTTP method
         const proxy = cfg.network.allow_methods && cfg.network.allow_methods.length > 0
         const network = result.dns.length > 0 || result.tls.length > 0 || result.network.length > 0
-        if (proxy && network && result.http.length === 0 && result.ssh.length === 0) return
+        if (proxy && network && result.http.length === 0 && result.ssh.length === 0) {
+          return
+        }
 
         if (violations.length === 0 && cfg.auto_allow_clean) {
           output.status = "allow"
