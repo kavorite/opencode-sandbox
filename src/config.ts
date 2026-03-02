@@ -1,5 +1,6 @@
 import { z } from "zod"
 import path from "path"
+import os from "os"
 
 const schema = z.object({
   timeout: z.number().default(250),
@@ -25,30 +26,31 @@ const schema = z.object({
 
 export type SandboxConfig = z.infer<typeof schema>
 
-export async function load(directory: string): Promise<SandboxConfig> {
-  const file = path.join(directory, ".opencode", "sandbox.json")
-  const exists = await Bun.file(file).exists()
+export const defaults = { timeout: 6000, network: { mode: "observe" as const, allow_methods: ["GET", "HEAD", "OPTIONS"] }, auto_allow_clean: true }
 
-  if (!exists) {
-    const defaults = { timeout: 6000, network: { mode: "observe", allow_methods: ["GET", "HEAD", "OPTIONS"] }, auto_allow_clean: true }
-    await Bun.write(file, JSON.stringify(defaults, null, 2) + "\n")
-    return schema.parse(defaults)
-  }
-
+async function read(file: string): Promise<Record<string, unknown> | undefined> {
+  if (!await Bun.file(file).exists()) return undefined
   const text = await Bun.file(file).text()
-
-  let parsed: unknown
   try {
-    parsed = JSON.parse(text)
+    return JSON.parse(text) as Record<string, unknown>
   } catch {
     console.warn(`Failed to parse ${file}: invalid JSON`)
-    return schema.parse({})
+    return undefined
   }
+}
 
-  const result = schema.safeParse(parsed)
+export async function load(directory: string, globalPath?: string): Promise<SandboxConfig> {
+  const g = globalPath ?? path.join(os.homedir(), ".config", "opencode", "sandbox.json")
+  const local = path.join(directory, ".opencode", "sandbox.json")
+
+  const base = await read(g) ?? defaults
+  const override = await read(local)
+  const merged = override ? { ...base, ...override } : base
+
+  const result = schema.safeParse(merged)
   if (!result.success) {
-    console.warn(`Invalid sandbox config in ${file}:`, result.error.message)
-    return schema.parse({})
+    console.warn(`Invalid sandbox config:`, result.error.message)
+    return schema.parse(defaults)
   }
 
   return result.data

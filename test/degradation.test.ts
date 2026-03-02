@@ -99,42 +99,42 @@ describe("graceful degradation", () => {
       await fs.rm(tmp, { recursive: true, force: true })
     })
 
-    test("missing sandbox.json bootstraps default config", async () => {
+    test("missing sandbox.json uses global then hardcoded defaults", async () => {
       const dir = path.join("/tmp", `sandbox-test-missing-${process.pid}`)
       await fs.mkdir(path.join(dir, ".opencode"), { recursive: true })
       await fs.rm(path.join(dir, ".opencode", "sandbox.json"), { force: true })
-      const cfg = await config.load(dir)
+      const cfg = await config.load(dir, "/nonexistent/global.json")
       expect(cfg.timeout).toBe(6000)
       expect(cfg.auto_allow_clean).toBe(true)
       expect(cfg.verbose).toBe(false)
       expect(cfg.network.mode).toBe("observe")
       expect(cfg.network.allow).toEqual([])
       expect(cfg.network.allow_methods).toEqual(["GET", "HEAD", "OPTIONS"])
-      expect(await Bun.file(path.join(dir, ".opencode", "sandbox.json")).exists()).toBe(true)
       expect(cfg.filesystem.inherit_permissions).toBe(true)
       expect(cfg.filesystem.allow_write).toEqual([])
       expect(cfg.filesystem.deny_read).toEqual([])
       await fs.rm(dir, { recursive: true, force: true })
     })
 
-    test("malformed sandbox.json warns and applies defaults", async () => {
+    test("malformed sandbox.json warns and applies schema defaults", async () => {
       await Bun.write(path.join(tmp, ".opencode", "sandbox.json"), "not json {{{")
-      const cfg = await config.load(tmp)
-      expect(cfg.timeout).toBe(250)
+      const cfg = await config.load(tmp, "/nonexistent/global.json")
+      expect(cfg.timeout).toBe(6000)
       expect(cfg.auto_allow_clean).toBe(true)
       expect(cfg.verbose).toBe(false)
-      expect(cfg.network.mode).toBe("block")
+      expect(cfg.network.mode).toBe("observe")
       expect(cfg.filesystem.inherit_permissions).toBe(true)
     })
 
-    test("empty object sandbox.json applies defaults", async () => {
+    test("empty object sandbox.json merges with hardcoded defaults", async () => {
       await Bun.write(path.join(tmp, ".opencode", "sandbox.json"), "{}")
-      const cfg = await config.load(tmp)
-      expect(cfg.timeout).toBe(250)
+      const cfg = await config.load(tmp, "/nonexistent/global.json")
+      expect(cfg.timeout).toBe(6000)
       expect(cfg.auto_allow_clean).toBe(true)
       expect(cfg.verbose).toBe(false)
-      expect(cfg.network.mode).toBe("block")
+      expect(cfg.network.mode).toBe("observe")
       expect(cfg.network.allow).toEqual([])
+      expect(cfg.network.allow_methods).toEqual(["GET", "HEAD", "OPTIONS"])
       expect(cfg.filesystem.inherit_permissions).toBe(true)
       expect(cfg.filesystem.allow_write).toEqual([])
       expect(cfg.filesystem.deny_read).toEqual([])
