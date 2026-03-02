@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test"
-import { schema } from "../src/config"
+import { schema, TIMEOUT } from "../src/config"
 import { decode } from "../src/decode"
 import { parseDNS } from "../src/dns"
 import { infer, parseHTTP, parseTLS } from "../src/protocol"
@@ -328,7 +328,7 @@ describe("config schema", () => {
   test("observe mode uses minimum 500ms timeout", () => {
     const result = schema.parse({ network: { mode: "observe" } })
     expect(result.network.mode).toBe("observe")
-    expect(result.timeout).toBe(250) // schema default; sandbox uses Math.max(timeout, 500) for observe
+    expect(result.timeout).toBe(TIMEOUT) // schema default; sandbox uses Math.max(timeout, 500) for observe
   })
 
   test("strace_bufsize optional", () => {

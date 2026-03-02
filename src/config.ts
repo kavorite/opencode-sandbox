@@ -2,8 +2,10 @@ import { z } from "zod"
 import path from "path"
 import os from "os"
 
+export const TIMEOUT = 1000
+
 const schema = z.object({
-  timeout: z.number().default(250),
+  timeout: z.number().default(TIMEOUT),
   network: z
     .object({
       mode: z.enum(["block", "log", "observe"]).default("block"),
@@ -26,7 +28,7 @@ const schema = z.object({
 
 export type SandboxConfig = z.infer<typeof schema>
 
-export const defaults = { timeout: 250, network: { mode: "observe" as const, allow_methods: ["GET", "HEAD", "OPTIONS"] }, auto_allow_clean: true }
+export const defaults = { timeout: TIMEOUT, network: { mode: "observe" as const, allow_methods: ["GET", "HEAD", "OPTIONS"] }, auto_allow_clean: true }
 
 async function read(file: string): Promise<Record<string, unknown> | undefined> {
   if (!await Bun.file(file).exists()) return undefined

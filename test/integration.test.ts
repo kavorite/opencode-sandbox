@@ -6,7 +6,7 @@ import { run } from "../src/sandbox"
 import { parseLog, parseLine } from "../src/strace"
 import { evaluate } from "../src/policy"
 import * as store from "../src/store"
-import { load } from "../src/config"
+import { load, TIMEOUT } from "../src/config"
 import plugin from "../src/index"
 
 const linux = os.platform() === "linux"
@@ -75,8 +75,8 @@ describe.skipIf(!available)("opencode-sandbox integration", () => {
     expect(result.timedOut).toBe(false)
   })
 
-  test("timeout behavior — sleep killed after 250ms", async () => {
-    const result = await run("sleep 10", "/tmp", 250)
+  test(`timeout behavior — sleep killed after ${TIMEOUT}ms`, async () => {
+    const result = await run("sleep 10", "/tmp", TIMEOUT)
 
     expect(result.timedOut).toBe(true)
     expect(result.duration).toBeLessThan(2000)
@@ -126,7 +126,7 @@ describe.skipIf(!available)("opencode-sandbox integration", () => {
     }
 
     const cfg = {
-      timeout: 250,
+      timeout: TIMEOUT,
       network: { mode: "block" as const, allow: [] },
       filesystem: {
         inherit_permissions: true,
