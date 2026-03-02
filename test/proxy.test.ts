@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test"
-import { schema } from "../src/config"
+import { schema, TIMEOUT } from "../src/config"
 import { evaluate } from "../src/policy"
 import type { SandboxResult } from "../src/store"
 import type { SandboxConfig } from "../src/config"
@@ -24,7 +24,7 @@ function empty(): SandboxResult {
 const project = "/home/user/project"
 
 const cfg: SandboxConfig = {
-  timeout: 250,
+  timeout: TIMEOUT,
   network: { mode: "observe", allow: [], allow_methods: ["GET"] },
   filesystem: { inherit_permissions: true, allow_write: [], deny_read: [] },
   auto_allow_clean: true,
