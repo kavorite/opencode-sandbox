@@ -176,7 +176,7 @@ describe.skipIf(!available)("E2E permission.ask hook", () => {
     }
   })
 
-  test("non-bash permission type — ignored by plugin", async () => {
+  test("edit with no filepath metadata — stays ask", async () => {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), "oc-e2e-"))
     await fs.mkdir(path.join(dir, ".opencode"), { recursive: true })
     await fs.writeFile(
@@ -206,7 +206,7 @@ describe.skipIf(!available)("E2E permission.ask hook", () => {
         output,
       )
 
-      // Plugin should NOT modify status for non-bash types
+      // No filepath in metadata — edit handler early-returns, status unchanged
       expect(output.status).toBe("ask")
     } finally {
       store.clear()
@@ -251,6 +251,202 @@ describe.skipIf(!available)("E2E permission.ask hook", () => {
       const stored = store.get("call_sleep")
       expect(stored).toBeDefined()
       expect(stored!.timedOut).toBe(true)
+    } finally {
+      store.clear()
+      await fs.rm(dir, { recursive: true, force: true })
+    }
+  })
+})
+
+describe.skipIf(!available)("E2E edit permission handler", () => {
+  test("edit inside project — auto-approved", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "oc-e2e-"))
+    await fs.mkdir(path.join(dir, ".opencode"), { recursive: true })
+    await fs.writeFile(
+      path.join(dir, ".opencode", "sandbox.json"),
+      JSON.stringify({ network: { mode: "block" }, auto_allow_clean: true }),
+    )
+
+    try {
+      const hooks = await plugin({
+        directory: dir,
+        worktree: dir,
+        serverUrl: new URL("http://localhost:0"),
+      } as Parameters<typeof plugin>[0])
+
+      const output = { status: "ask" as "ask" | "deny" | "allow" }
+      await hooks["permission.ask"]!(
+        {
+          id: "perm_edit_inside",
+          type: "edit",
+          pattern: ["*"],
+          sessionID: "ses_test",
+          messageID: "msg_test",
+          message: "edit file",
+          metadata: { filepath: "src/index.ts", diff: "+// hello" },
+          time: { created: Date.now() },
+        } as any,
+        output,
+      )
+
+      // Relative path inside project — no violations — auto-approved
+      expect(output.status).toBe("allow")
+    } finally {
+      store.clear()
+      await fs.rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test("edit outside project — stays ask", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "oc-e2e-"))
+    await fs.mkdir(path.join(dir, ".opencode"), { recursive: true })
+    await fs.writeFile(
+      path.join(dir, ".opencode", "sandbox.json"),
+      JSON.stringify({ network: { mode: "block" }, auto_allow_clean: true, verbose: true }),
+    )
+
+    try {
+      const hooks = await plugin({
+        directory: dir,
+        worktree: dir,
+        serverUrl: new URL("http://localhost:0"),
+      } as Parameters<typeof plugin>[0])
+
+      const output = { status: "ask" as "ask" | "deny" | "allow" }
+      await hooks["permission.ask"]!(
+        {
+          id: "perm_edit_outside",
+          type: "edit",
+          pattern: ["*"],
+          sessionID: "ses_test",
+          messageID: "msg_test",
+          message: "edit file",
+          metadata: { filepath: "/etc/passwd", diff: "+evil" },
+          time: { created: Date.now() },
+        } as any,
+        output,
+      )
+
+      // Absolute path outside project — violation — stays ask
+      expect(output.status).toBe("ask")
+    } finally {
+      store.clear()
+      await fs.rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test("edit with absolute path inside project — auto-approved", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "oc-e2e-"))
+    await fs.mkdir(path.join(dir, ".opencode"), { recursive: true })
+    await fs.writeFile(
+      path.join(dir, ".opencode", "sandbox.json"),
+      JSON.stringify({ network: { mode: "block" }, auto_allow_clean: true }),
+    )
+
+    try {
+      const hooks = await plugin({
+        directory: dir,
+        worktree: dir,
+        serverUrl: new URL("http://localhost:0"),
+      } as Parameters<typeof plugin>[0])
+
+      const output = { status: "ask" as "ask" | "deny" | "allow" }
+      await hooks["permission.ask"]!(
+        {
+          id: "perm_edit_abs_inside",
+          type: "edit",
+          pattern: ["*"],
+          sessionID: "ses_test",
+          messageID: "msg_test",
+          message: "edit file",
+          metadata: { filepath: path.join(dir, "src/main.ts"), diff: "+code" },
+          time: { created: Date.now() },
+        } as any,
+        output,
+      )
+
+      // Absolute path inside project — auto-approved
+      expect(output.status).toBe("allow")
+    } finally {
+      store.clear()
+      await fs.rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test("apply_patch with comma-separated paths — mixed inside/outside", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "oc-e2e-"))
+    await fs.mkdir(path.join(dir, ".opencode"), { recursive: true })
+    await fs.writeFile(
+      path.join(dir, ".opencode", "sandbox.json"),
+      JSON.stringify({ network: { mode: "block" }, auto_allow_clean: true, verbose: true }),
+    )
+
+    try {
+      const hooks = await plugin({
+        directory: dir,
+        worktree: dir,
+        serverUrl: new URL("http://localhost:0"),
+      } as Parameters<typeof plugin>[0])
+
+      const output = { status: "ask" as "ask" | "deny" | "allow" }
+      await hooks["permission.ask"]!(
+        {
+          id: "perm_patch_mixed",
+          type: "edit",
+          pattern: ["*"],
+          sessionID: "ses_test",
+          messageID: "msg_test",
+          message: "apply patch",
+          metadata: { filepath: "src/foo.ts, /etc/hosts", diff: "patch content" },
+          time: { created: Date.now() },
+        } as any,
+        output,
+      )
+
+      // One path outside project — violation — stays ask
+      expect(output.status).toBe("ask")
+    } finally {
+      store.clear()
+      await fs.rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test("edit with allowed external path — auto-approved", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "oc-e2e-"))
+    await fs.mkdir(path.join(dir, ".opencode"), { recursive: true })
+    await fs.writeFile(
+      path.join(dir, ".opencode", "sandbox.json"),
+      JSON.stringify({
+        network: { mode: "block" },
+        auto_allow_clean: true,
+        filesystem: { allow_write: ["/tmp"] },
+      }),
+    )
+
+    try {
+      const hooks = await plugin({
+        directory: dir,
+        worktree: dir,
+        serverUrl: new URL("http://localhost:0"),
+      } as Parameters<typeof plugin>[0])
+
+      const output = { status: "ask" as "ask" | "deny" | "allow" }
+      await hooks["permission.ask"]!(
+        {
+          id: "perm_edit_allowed",
+          type: "edit",
+          pattern: ["*"],
+          sessionID: "ses_test",
+          messageID: "msg_test",
+          message: "edit file",
+          metadata: { filepath: "/tmp/scratch.txt", diff: "+data" },
+          time: { created: Date.now() },
+        } as any,
+        output,
+      )
+
+      // /tmp is in allow_write — auto-approved
+      expect(output.status).toBe("allow")
     } finally {
       store.clear()
       await fs.rm(dir, { recursive: true, force: true })
