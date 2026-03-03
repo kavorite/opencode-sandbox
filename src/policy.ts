@@ -13,7 +13,7 @@ const EPHEMERAL = [
   `${home}/.npm`, `${home}/.bun`, `${home}/.pnpm-store`,
 ]
 // Paths used by the sandbox's own CA injection — not user-initiated writes
-const SANDBOX_INFRA = ["/newroot", "/etc/ssl", "/etc/pki"]
+const SANDBOX_INFRA = ["/etc/ssl", "/etc/pki"]
 
 export function writable(target: string, root: string, allow: string[]): boolean {
   if (target === root || target.startsWith(root + "/")) return true
@@ -93,6 +93,7 @@ export function evaluate(result: SandboxResult, config: SandboxConfig, project: 
     : [
         ...result.http
           .filter((h) => !config.network.allow_methods!.includes(h.method))
+          .filter((h) => !(config.network.allow_graphql_queries && h.method === "POST" && h.path.toLowerCase().includes("graphql")))
           .map(
             (h): Violation => ({
               type: "network",
