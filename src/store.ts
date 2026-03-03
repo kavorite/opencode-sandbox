@@ -1,4 +1,4 @@
-import type { FileOpen, FileWrite, FsMutation, NetConnect, NetSocket } from "./strace"
+import type { FileOpen, FileWrite, FsMutation, NetConnect, NetSocket } from './diff.js'
 
 export type DnsQuery = {
   qname: string
@@ -48,6 +48,10 @@ export type SandboxResult = {
   duration: number
   timedOut: boolean
   violations: Violation[]
+  stdout: string
+  stderr: string
+  exitCode: number
+  upper?: string
 }
 
 const results = new Map<string, SandboxResult>()
