@@ -26,4 +26,4 @@ rebuild:
 
 # Remove compiled binaries
 clean:
-	rm -rf bin/oc-observe bin/ca-gen bin/ca.pem bin/ca.key
+	rm -rf bin/oc-observe bin/ca-gen bin/ca.pem bin/ca.key bin/oc-epilogue
