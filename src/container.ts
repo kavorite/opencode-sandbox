@@ -1,3 +1,5 @@
+import fs from 'fs'
+import path from 'path'
 import Dockerode from 'dockerode'
 import * as docker from './docker.js'
 import { ensureImage } from './image.js'
@@ -16,7 +18,11 @@ export type SessionState = {
   sessionId: string
   project: string
   home: string
+  /** The home directory of the user inside the container (e.g. /home/sandbox) */
+  containerHome: string
   dockerClient: Dockerode
+  binds: string[]
+  env: string[]
 }
 
 export async function init(
@@ -27,9 +33,8 @@ export async function init(
   config: SandboxConfig,
 ): Promise<SessionState> {
   const networkName = `oc-sandbox-${sessionId}`
-  const networkMode = config.network.mode === 'block' ? 'none' : networkName
 
-  // Create network (only needed in observe mode, but create anyway for labeling)
+  // Create network for container isolation (still useful for labeling + observe mode)
   const network = await docker.createNetwork(dockerClient, networkName, sessionId)
 
   // Ensure image exists
@@ -41,9 +46,29 @@ export async function init(
     'OC_SANDBOX=1',
     `OC_SANDBOX_PROJECT=${project}`,
   ]
-  if (config.network.mode === 'observe' && config.network.allow_methods?.length) {
+  if (config.network.observe && config.network.allow_methods?.length) {
     env.push('HTTP_PROXY=http://mitmproxy:8080')
     env.push('HTTPS_PROXY=http://mitmproxy:8080')
+  }
+
+  // Build bind mounts (project dir + SSH auth)
+  const binds = [`${project}:${project}`]
+
+  // Bind-mount ~/.ssh read-only so git can use keys and known_hosts
+  const sshDir = path.join(home, '.ssh')
+  if (fs.existsSync(sshDir)) {
+    binds.push(`${sshDir}:${sshDir}:ro`)
+  }
+
+  // Forward SSH agent socket if available
+  if (process.env.SSH_AUTH_SOCK) {
+    binds.push(`${process.env.SSH_AUTH_SOCK}:${process.env.SSH_AUTH_SOCK}`)
+    env.push(`SSH_AUTH_SOCK=${process.env.SSH_AUTH_SOCK}`)
+  }
+
+  // Forward GIT_SSH_COMMAND if set on host (e.g. custom key selection)
+  if (process.env.GIT_SSH_COMMAND) {
+    env.push(`GIT_SSH_COMMAND=${process.env.GIT_SSH_COMMAND}`)
   }
 
   // Create container
@@ -51,14 +76,23 @@ export async function init(
     sessionId,
     image: config.docker.image ?? imageName,
     cmd: ['sleep', 'infinity'],
-    binds: [`${project}:${project}`],
-    networkMode,
+    binds,
+    networkMode: networkName,
     env,
     workingDir: project,
     name: `oc-sandbox-${sessionId}`,
   })
 
   await container.start()
+
+  // Detect the container image user's actual home directory (not the env-overridden $HOME)
+  // We use getent passwd to read from /etc/passwd, bypassing the HOME env var we set.
+  const containerHomeResult = await docker.execCommand(
+    container,
+    ['sh', '-c', 'getent passwd $(id -u) | cut -d: -f6'],
+    {},
+  )
+  const containerHome = containerHomeResult.stdout.trim() || '/home/sandbox'
 
   // Commit base state
   const baseTag = `opencode-sandbox:${sessionId}-base`
@@ -71,7 +105,10 @@ export async function init(
     sessionId,
     project,
     home,
+    containerHome,
     dockerClient,
+    binds,
+    env,
   }
 
   // Register cleanup on process exit
@@ -96,7 +133,7 @@ export async function inspect(
   state: SessionState,
 ): Promise<DiffResult> {
   const changes = await docker.getChanges(state.container)
-  return mapChanges(changes, state.project, state.home)
+  return mapChanges(changes, state.project, state.home, state.binds, state.containerHome)
 }
 
 export async function approve(state: SessionState): Promise<void> {
@@ -110,12 +147,13 @@ export async function reject(state: SessionState): Promise<void> {
   try { await state.container.stop({ t: 1 }) } catch { /* already stopped */ }
   await state.container.remove({ force: true })
 
-  // Recreate from last committed image
+  // Recreate from last committed image (preserving SSH binds and env)
   const newContainer = await docker.createContainer(state.dockerClient, {
     sessionId: state.sessionId,
     image: state.imageTag,
     cmd: ['sleep', 'infinity'],
-    binds: [`${state.project}:${state.project}`],
+    binds: state.binds,
+    env: state.env,
     workingDir: state.project,
     name: `oc-sandbox-${state.sessionId}-${Date.now()}`,
   })

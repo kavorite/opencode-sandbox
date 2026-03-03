@@ -13,8 +13,8 @@ import type { SessionState } from './container.js'
 import type { ProxyState } from './proxy.js'
 import type { SandboxResult } from './store.js'
 
-// Stashed args refs keyed by callID — tool.execute.before stores, permission.ask reads
-const stash = new Map<string, { command: string }>()
+// Stashed original commands keyed by callID — used to relay real command in shell.env / logging
+const originalCommands = new Map<string, string>()
 
 const plugin: Plugin = async (input: PluginInput): Promise<Hooks> => {
   // Nesting detection — if already inside a sandbox, return empty hooks
@@ -38,50 +38,18 @@ const plugin: Plugin = async (input: PluginInput): Promise<Hooks> => {
 
   // Start mitmproxy sidecar AFTER init (network must exist first)
   let proxyState: ProxyState | undefined
-  if (cfg.network.mode === 'observe') {
-    proxyState = await proxy.startProxy(docker, networkName, sessionId, cfg.network.allow_methods)
+  if (cfg.network.observe) {
+    proxyState = await proxy.startProxy(docker, networkName, sessionId, cfg.network.allow_methods, cfg.network.allow_graphql_queries)
   }
 
   return {
     'tool.execute.before': async (info, output) => {
       if (info.tool !== 'bash') return
-      // Stash reference to args so permission.ask can replace the command
-      stash.set(info.callID, output.args as { command: string })
-    },
+      const args = output.args as { command: string }
+      const originalCommand = args.command
 
-    'permission.ask': async (info, output) => {
-      // Handle post-review commit approval (from sandbox_review)
-      if (info.type === 'sandbox_review') {
-        output.status = 'allow'
-        return
-      }
-
-      // Path-based policy for file edits/writes
-      if (info.type === 'edit' || info.type === 'write' || info.type === 'apply_patch') {
-        const filepath = (info.metadata as Record<string, unknown> | undefined)?.filepath as string | undefined
-        if (!filepath) return
-        const targets = filepath.includes(', ') ? filepath.split(', ') : [filepath]
-        const blocked = targets
-          .map((t) => (path.isAbsolute(t) ? t : path.resolve(project, t)))
-          .filter((t) => !policy.writable(t, path.resolve(project), cfg.filesystem.allow_write))
-        if (blocked.length === 0 && cfg.auto_allow_clean) {
-          output.status = 'allow'
-        }
-        return
-      }
-
-      if (info.type !== 'bash') return
-
-      const callID = info.callID ?? (info as Record<string, unknown>).id as string
-      const ref = stash.get(callID)
-      if (!ref) {
-        output.status = 'allow'
-        store.set(callID, emptyResult())
-        return
-      }
-
-      // Run the command inside the Docker container
-      const execResult = await container.exec(state, ref.command, project)
+      // Run the command inside Docker NOW — before bash.ts spawns it on the host
+      const execResult = await container.exec(state, originalCommand, project)
 
       // Get filesystem diff
       const diffResult = await container.inspect(state)
@@ -114,34 +82,70 @@ const plugin: Plugin = async (input: PluginInput): Promise<Hooks> => {
       const violations = policy.evaluate(result, cfg, project)
       result.violations = violations
 
-      // Store result for tool.execute.after / UI display
-      store.set(callID, result)
+      // Store result for tool.execute.after to relay to agent
+      store.set(info.callID, result)
+      originalCommands.set(info.callID, originalCommand)
 
-      // Replace the command with a no-op — it already ran inside Docker
-      ref.command = 'true'
-      stash.delete(callID)
-
-      if (violations.length === 0 && cfg.auto_allow_clean) {
-        // Clean — commit container state and auto-approve
-        await container.approve(state)
-        output.status = 'allow'
-      } else if (violations.length > 0) {
-        // Violations — write manifest for review prompt, leave as 'ask'
-        const manifestPath = `/tmp/oc-sandbox-review-${callID}`
-        await Bun.write(manifestPath, JSON.stringify({ violations, stdout: result.stdout, stderr: result.stderr }))
-        // Rollback container to pre-command state
+      if (violations.length > 0) {
+        // Violations — rollback container to pre-command state
         await container.reject(state)
-        // output.status remains 'ask' — user sees violation prompt
+        // Write manifest for potential review prompt
+        const manifestPath = `/tmp/oc-sandbox-review-${info.callID}`
+        await Bun.write(manifestPath, JSON.stringify({ violations, stdout: result.stdout, stderr: result.stderr }))
       } else {
-        // No violations but auto_allow_clean is false — commit and ask
+        // Clean — commit container state
         await container.approve(state)
       }
+
+      // Sentinel strategy:
+      //   Clean: shell comment → bash skips permission prompt (auto-approved)
+      //   Violation: 'true # [sandboxed] ...' → bash fires permission prompt
+      //   In both cases the host runs a no-op; Docker already executed the real command.
+      args.command = violations.length > 0
+        ? `true # [sandboxed] ${originalCommand}`   // prompt — user must approve
+        : `# [sandboxed] ${originalCommand}`         // silent — clean, no prompt
     },
 
-    'tool.execute.after': async (info) => {
+    'permission.ask': async (info, output) => {
+      // Handle post-review commit approval (from sandbox_review)
+      if (info.type === 'sandbox_review') {
+        output.status = 'allow'
+        return
+      }
+
+      // Path-based policy for file edits/writes (these hooks DO fire for non-bash tools)
+      if (info.type === 'edit' || info.type === 'write' || info.type === 'apply_patch') {
+        const filepath = (info.metadata as Record<string, unknown> | undefined)?.filepath as string | undefined
+        if (!filepath) return
+        const targets = filepath.includes(', ') ? filepath.split(', ') : [filepath]
+        const blocked = targets
+          .map((t) => (path.isAbsolute(t) ? t : path.resolve(project, t)))
+          .filter((t) => !policy.writable(t, path.resolve(project), cfg.filesystem.allow_write))
+        if (blocked.length === 0 && cfg.auto_allow_clean) {
+          output.status = 'allow'
+        }
+        return
+      }
+
+      // NOTE: 'bash' permission.ask is NOT triggered by PermissionNext (current opencode).
+      // Bash interception happens in tool.execute.before instead.
+    },
+
+    'tool.execute.after': async (info, output) => {
       if (info.tool !== 'bash') return
-      stash.delete(info.callID)
-      // Clean up manifest file if it exists
+      // Relay Docker stdout/stderr back to agent — host ran 'true', Docker ran the real command
+      const result = store.get(info.callID)
+      if (result) {
+        if (result.violations.length > 0) {
+          // Command was blocked — relay violation summary so agent knows
+          const summary = result.violations.map((v) => `[SANDBOX VIOLATION] ${v.type}: ${v.detail}`).join('\n')
+          output.output = `Command blocked by sandbox:\n${summary}`
+        } else {
+          const text = [result.stdout, result.stderr].filter(Boolean).join('\n')
+          if (text) output.output = text
+        }
+      }
+      originalCommands.delete(info.callID)
       await rm(`/tmp/oc-sandbox-review-${info.callID}`, { force: true }).catch(() => {})
     },
 
@@ -149,31 +153,12 @@ const plugin: Plugin = async (input: PluginInput): Promise<Hooks> => {
       output.env.OC_SANDBOX = '1'
       output.env.OC_SANDBOX_PROJECT = project
       output.env.OC_SANDBOX_WRITABLE = cfg.filesystem.allow_write.join(':')
-      if (cfg.network.mode === 'observe' && cfg.network.allow_methods?.length) {
+      if (cfg.network.observe && cfg.network.allow_methods?.length) {
         output.env.OC_ALLOW_METHODS = cfg.network.allow_methods.join(',')
       }
     },
   }
 }
 
-function emptyResult(): SandboxResult {
-  return {
-    files: [],
-    writes: [],
-    mutations: [],
-    network: [],
-    sockets: [],
-    dns: [],
-    http: [],
-    tls: [],
-    ssh: [],
-    duration: 0,
-    timedOut: false,
-    violations: [],
-    stdout: '',
-    stderr: '',
-    exitCode: 0,
-  }
-}
 
 export default plugin

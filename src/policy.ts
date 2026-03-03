@@ -62,33 +62,9 @@ export function evaluate(result: SandboxResult, config: SandboxConfig, project: 
         severity: "medium",
       }),
     )
-  // In proxy mode (allow_methods configured), raw network connects are handled by
-  // the TLS MITM proxy — don't flag them as violations
-  const proxy = config.network.allow_methods && config.network.allow_methods.length > 0
-  const inet = proxy ? [] : result.network
-    .filter((n) => n.family === "AF_INET" || n.family === "AF_INET6")
-    .filter((n) => !config.network.allow.includes(n.addr))
-    .map(
-      (n): Violation => ({
-        type: "network",
-        syscall: "connect",
-        detail: `Connection to ${n.addr}:${n.port}`,
-        severity: "high",
-      }),
-    )
 
-  const unix = proxy ? [] : result.network
-    .filter((n) => n.family === "AF_UNIX")
-    .map(
-      (n): Violation => ({
-        type: "unix_socket",
-        syscall: "connect",
-        detail: `Unix socket: ${n.addr}`,
-        severity: "low",
-      }),
-    )
-
-  const methods = !config.network.allow_methods || config.network.allow_methods.length === 0
+  // In observe mode, flag HTTP methods not in the allow list
+  const methods = !config.network.observe || !config.network.allow_methods || config.network.allow_methods.length === 0
     ? []
     : [
         ...result.http
@@ -102,31 +78,7 @@ export function evaluate(result: SandboxResult, config: SandboxConfig, project: 
               severity: "high",
             }),
           ),
-        ...result.tls
-          .map(
-            (t): Violation => ({
-              type: "network",
-              syscall: "connect",
-              detail: `Non-HTTP TLS to ${t.sni} blocked`,
-              severity: "high",
-            }),
-          ),
       ]
 
-  const ssh = !proxy
-    ? []
-    : result.ssh
-        .filter((s) => s.cmd !== "git-upload-pack")
-        .map(
-          (s): Violation => ({
-            type: "network",
-            syscall: "connect",
-            detail: s.cmd
-              ? `SSH ${s.cmd} to ${s.repo || s.addr}`
-              : `SSH connection to ${s.addr}:${s.port}`,
-            severity: "high",
-          }),
-        )
-
-  return [...reads, ...mutations, ...inet, ...unix, ...methods, ...ssh]
+  return [...reads, ...mutations, ...methods]
 }

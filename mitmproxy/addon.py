@@ -5,6 +5,7 @@ from mitmproxy import http
 LOG = os.environ.get("MITMPROXY_LOG", "/var/log/mitmproxy/flows.jsonl")
 _raw = os.environ.get("ALLOW_METHODS", "")
 ALLOW_METHODS = [m.strip() for m in _raw.split(",") if m.strip()] if _raw else None
+ALLOW_GRAPHQL = os.environ.get("ALLOW_GRAPHQL_QUERIES", "true").lower() == "true"
 
 
 def response(flow: http.HTTPFlow) -> None:
@@ -24,4 +25,6 @@ def response(flow: http.HTTPFlow) -> None:
 
 def request(flow: http.HTTPFlow) -> None:
     if ALLOW_METHODS is not None and flow.request.method not in ALLOW_METHODS:
+        if ALLOW_GRAPHQL and flow.request.method == "POST" and "graphql" in flow.request.path.lower():
+            return
         flow.response = http.Response.make(403, b"Method not allowed by sandbox policy")

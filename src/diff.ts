@@ -64,8 +64,12 @@ export const mapChanges = (
   changes: ContainerChange[],
   project: string,
   _home: string,
+  bindMounts: string[] = [],
+  containerHome: string | undefined = undefined,
 ): DiffResult => {
   const normalizedProject = project.replace(/\/$/, "")
+  // Normalize bind mounts: strip read-only suffix (':ro') and extract host paths
+  const bindPaths = bindMounts.map((b) => b.split(':')[0]).filter((p): p is string => !!p)
   const mutations: FsMutation[] = []
   const writes: FileWrite[] = []
 
@@ -74,6 +78,15 @@ export const mapChanges = (
 
     if (isUnder(path, normalizedProject)) continue
     if (isEphemeral(path)) continue
+    // Skip paths that are (or are parents of) bind-mounted directories —
+    // Docker records bind mount points as 'modified' even though the command didn't touch them.
+    if (bindPaths.some((bp) => isUnder(path, bp) || isUnder(bp, path))) continue
+    // Exclude SSH infrastructure writes in the container's home — git commands legitimately
+    // create/update known_hosts there and the .ssh dir itself. These are ephemeral.
+    if (containerHome && isUnder(path, containerHome + '/.ssh')) continue
+    // Exclude metadata-only (Kind=0) changes on the container home dir itself —
+    // Docker records the parent dir as 'modified' when children are written.
+    if (containerHome && kind === 0 && path === containerHome) continue
 
     if (kind === 1) {
       const syscall = path.endsWith("/") ? "mkdir" : "creat"

@@ -6,12 +6,12 @@ import os from "os"
 const schema = z.object({
   network: z
     .object({
-      mode: z.enum(["block", "log", "observe"]).default("block"),
+      observe: z.boolean().default(false),
       allow: z.array(z.string()).default([]),
       allow_methods: z.array(z.string()).default(["GET", "HEAD", "OPTIONS"]),
       allow_graphql_queries: z.boolean().default(true),
     })
-    .default({ mode: "block", allow: [] }),
+    .default({ observe: false, allow: [] }),
   filesystem: z
     .object({
       inherit_permissions: z.boolean().default(true),
@@ -30,7 +30,7 @@ const schema = z.object({
 
 export type SandboxConfig = z.infer<typeof schema>
 
-export const defaults = { network: { mode: "observe" as const, allow_methods: ["GET", "HEAD", "OPTIONS"], allow_graphql_queries: true }, auto_allow_clean: true, docker: { image: "opencode-sandbox:local" } }
+export const defaults = { network: { observe: false, allow_methods: ["GET", "HEAD", "OPTIONS"], allow_graphql_queries: true }, auto_allow_clean: true, docker: { image: "opencode-sandbox:local" } }
 
 async function read(file: string): Promise<Record<string, unknown> | undefined> {
   if (!await Bun.file(file).exists()) return undefined
