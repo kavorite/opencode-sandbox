@@ -29,6 +29,7 @@ export async function startProxy(
   networkName: string,
   sessionId: string,
   allowMethods?: string[],
+  allowGraphqlQueries?: boolean,
 ): Promise<ProxyState> {
   const logDir = `/tmp/oc-proxy-${sessionId}`
 
@@ -57,6 +58,7 @@ export async function startProxy(
     Env: [
       `MITMPROXY_LOG=/var/log/mitmproxy/flows.jsonl`,
       `ALLOW_METHODS=${allowMethods?.join(',') ?? ''}`,
+      `ALLOW_GRAPHQL_QUERIES=${allowGraphqlQueries !== false ? 'true' : 'false'}`,
     ],
     Labels: {
       'opencode-sandbox': 'true',

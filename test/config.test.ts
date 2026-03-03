@@ -4,7 +4,7 @@ import { schema } from '../src/config'
 describe('config schema', () => {
   test('parses empty input with defaults', () => {
     const result = schema.parse({})
-    expect(result.network.mode).toBe('block')
+    expect(result.network.observe).toBe(false)
     expect(result.docker.image).toBe('opencode-sandbox:local')
     expect(result).not.toHaveProperty('timeout')
     expect(result).not.toHaveProperty('home_readable')

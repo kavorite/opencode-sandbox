@@ -90,7 +90,7 @@ describe('opencode-sandbox Docker integration', () => {
     ])
   }, 30000) // 30s timeout for container startup
 
-  test('clean echo command is auto-approved with no violations', async () => {
+  test('clean echo command runs in Docker and stores result', async () => {
     const callID = 'test-clean-' + Date.now()
 
     const hooks = await plugin({
@@ -99,32 +99,21 @@ describe('opencode-sandbox Docker integration', () => {
       serverUrl: new URL('http://localhost:0'),
     })
 
-    // Simulate tool.execute.before — stashes args ref by callID
+    // Simulate tool.execute.before — runs command in Docker, stores result, replaces command
     const argsRef = { command: 'echo hello' }
-    await hooks['tool.execute.before']?.(
-      { tool: 'bash', callID, id: callID } as any,
-      { args: argsRef } as any,
-    )
+    await hooks['tool.execute.before']?.({
+      tool: 'bash', callID, id: callID
+    } as any, { args: argsRef } as any)
 
-    // Simulate permission.ask — runs command in Docker, evaluates policy
-    const askOutput = { status: 'ask' as 'ask' | 'allow' | 'deny' }
-    await hooks['permission.ask']?.(
-      { type: 'bash', callID, id: callID } as any,
-      askOutput as any,
-    )
-
-    // Clean command (echo) should be auto-approved
-    expect(askOutput.status).toBe('allow')
-
-    // Command should have been replaced with no-op
-    expect(argsRef.command).toBe('true')
-
-    // Result should be stored
+    // Result should be stored after tool.execute.before
     const result = getResult(callID)
     expect(result).toBeDefined()
     expect(result?.exitCode).toBe(0)
     expect(result?.stdout.trim()).toBe('hello')
     expect(result?.violations).toHaveLength(0)
+
+    // Clean command: silent comment sentinel (no permission prompt)
+    expect(argsRef.command).toBe('# [sandboxed] echo hello')
   }, 60000) // 60s for container exec
 
   test('write outside project produces mutation violation', async () => {
@@ -139,18 +128,11 @@ describe('opencode-sandbox Docker integration', () => {
     // Command that writes outside the project directory
     // /home/sandbox is writable by the container user but outside project + ephemeral paths
     const argsRef = { command: 'mkdir /home/sandbox/evil-test' }
-    await hooks['tool.execute.before']?.(
-      { tool: 'bash', callID, id: callID } as any,
-      { args: argsRef } as any,
-    )
+    await hooks['tool.execute.before']?.({
+      tool: 'bash', callID, id: callID
+    } as any, { args: argsRef } as any)
 
-    const askOutput = { status: 'ask' as 'ask' | 'allow' | 'deny' }
-    await hooks['permission.ask']?.(
-      { type: 'bash', callID, id: callID } as any,
-      askOutput as any,
-    )
-
-    // Result should be stored with mutations detected
+    // Result should be stored with mutations + violations detected after tool.execute.before
     const result = getResult(callID)
     expect(result).toBeDefined()
     expect(result!.mutations.length).toBeGreaterThan(0)
@@ -161,5 +143,56 @@ describe('opencode-sandbox Docker integration', () => {
       (v) => v.type === 'filesystem' && v.detail.includes('/home/sandbox/evil-test'),
     )
     expect(mutationViolation).toBeDefined()
+
+    // Command should be replaced with sentinel even on violation
+    expect(argsRef.command).toBe('true # [sandboxed] mkdir /home/sandbox/evil-test')
   }, 60000) // 60s for container exec
+
+  test('SSH auth: ~/.ssh is mounted and plainsight key can reach github', async () => {
+    const callID = 'test-ssh-' + Date.now()
+
+    const hooks = await plugin({
+      directory: TEST_PROJECT,
+      worktree: TEST_PROJECT,
+      serverUrl: new URL('http://localhost:0'),
+    })
+
+    // Verify ~/.ssh is mounted by checking the plainsight key exists inside the container
+    const argsRef = { command: 'test -f ~/.ssh/plainsight && echo SSH_KEY_PRESENT || echo SSH_KEY_MISSING' }
+    await hooks['tool.execute.before']?.({
+      tool: 'bash', callID, id: callID
+    } as any, { args: argsRef } as any)
+
+    const result = getResult(callID)
+    expect(result).toBeDefined()
+    expect(result!.violations).toHaveLength(0)
+    expect(result!.stdout.trim()).toBe('SSH_KEY_PRESENT')
+  }, 60000)
+
+  test('SSH auth: git ls-remote works with plainsight key inside container', async () => {
+    const callID = 'test-ssh-git-' + Date.now()
+
+    const hooks = await plugin({
+      directory: TEST_PROJECT,
+      worktree: TEST_PROJECT,
+      serverUrl: new URL('http://localhost:0'),
+    })
+
+    // Use GIT_SSH_COMMAND to explicitly use the plainsight key, with StrictHostKeyChecking disabled
+    // to avoid known_hosts prompts in CI-like environments
+    const sshCmd = 'ssh -i ~/.ssh/plainsight -o StrictHostKeyChecking=accept-new -o BatchMode=yes'
+    const argsRef = {
+      // Don't redirect stderr — we want stdout to contain only the ls-remote output (commit hash + HEAD)
+      command: `GIT_SSH_COMMAND='${sshCmd}' git ls-remote git@github.com:PlainsightAI/plainsight-api.git HEAD`,
+    }
+    await hooks['tool.execute.before']?.({
+      tool: 'bash', callID, id: callID
+    } as any, { args: argsRef } as any)
+
+    const result = getResult(callID)
+    expect(result).toBeDefined()
+    expect(result!.violations).toHaveLength(0)
+    // stdout should contain a commit hash + 'HEAD' line
+    expect(result!.stdout).toMatch(/[0-9a-f]{40}\s+HEAD/)
+  }, 120000) // 2 min for network + git handshake
 })
