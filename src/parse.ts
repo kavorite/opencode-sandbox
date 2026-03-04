@@ -1,6 +1,7 @@
 import type { Parser as ParserType } from 'web-tree-sitter'
 import path from 'path'
 import { createRequire } from 'module'
+import { parse as parseGraphQL, Kind } from 'graphql'
 
 const require = createRequire(import.meta.url)
 
@@ -53,4 +54,43 @@ export function stripSentinels(command: string, parser: ParserType): string {
   if (pos < command.length) pieces.push(command.slice(pos))
   const result = pieces.join('').trim()
   return result || command
+}
+
+export type GraphQLOperation = {
+  type: 'query' | 'mutation' | 'subscription'
+  name?: string
+}
+
+/**
+ * Parse a GraphQL HTTP request body and extract the first operation.
+ * Expects a JSON body with a `query` field containing the GraphQL document.
+ * Returns undefined if the body is not valid JSON or valid GraphQL.
+ */
+export function parseGraphQLBody(body: string): GraphQLOperation | undefined {
+  let queryStr: string
+  try {
+    const data = JSON.parse(body)
+    queryStr = data?.query ?? ''
+  } catch {
+    return undefined
+  }
+
+  if (!queryStr || typeof queryStr !== 'string') return undefined
+
+  try {
+    const doc = parseGraphQL(queryStr)
+    for (const def of doc.definitions) {
+      if (def.kind === Kind.OPERATION_DEFINITION) {
+        return {
+          type: def.operation,
+          name: def.name?.value,
+        }
+      }
+    }
+  } catch {
+    // Invalid GraphQL — can't determine operation type
+    return undefined
+  }
+
+  return undefined
 }
