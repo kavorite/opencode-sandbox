@@ -196,3 +196,28 @@ describe('opencode-sandbox Docker integration', () => {
     expect(result!.stdout).toMatch(/[0-9a-f]{40}\s+HEAD/)
   }, 120000) // 2 min for network + git handshake
 })
+
+describe('opencode-sandbox strace integration', () => {
+  test('strace: git ls-remote populates result.ssh with git-upload-pack (no violation)', async () => {
+    const callID = 'test-strace-fetch-' + Date.now()
+    const hooks = await plugin({
+      directory: TEST_PROJECT,
+      worktree: TEST_PROJECT,
+      serverUrl: new URL('http://localhost:0'),
+    })
+
+    const sshCmd = 'ssh -i ~/.ssh/plainsight -o StrictHostKeyChecking=accept-new -o BatchMode=yes'
+    const cmd = `GIT_SSH_COMMAND='${sshCmd}' git ls-remote git@github.com:PlainsightAI/plainsight-api.git HEAD`
+    const argsRef = { command: cmd }
+    await hooks['tool.execute.before']?.({ tool: 'bash', callID, id: callID } as any, { args: argsRef } as any)
+
+    const result = getResult(callID)
+    expect(result).toBeDefined()
+    // ls-remote uses git-upload-pack -- not a push, not a violation
+    expect(result!.violations).toHaveLength(0)
+    // strace should have captured the ssh execve with git-upload-pack
+    const uploadPack = result!.ssh.find((s) => s.cmd === 'git-upload-pack')
+    expect(uploadPack).toBeDefined()
+    expect(uploadPack!.addr).toContain('github.com')
+  }, 120000)
+})

@@ -80,5 +80,18 @@ export function evaluate(result: SandboxResult, config: SandboxConfig, project: 
           ),
       ]
 
-  return [...reads, ...mutations, ...methods]
+  // SSH push detection — git-receive-pack means the command is pushing to a remote.
+  // git-upload-pack is fetch/clone (safe, read-only from remote's perspective).
+  const sshPushes = result.ssh
+    .filter((s) => s.cmd === 'git-receive-pack')
+    .map(
+      (s): Violation => ({
+        type: 'network',
+        syscall: 'connect',
+        detail: `git push to ${s.repo ? `${s.addr}:${s.repo}` : s.addr}`,
+        severity: 'high',
+      }),
+    )
+
+  return [...reads, ...mutations, ...methods, ...sshPushes]
 }

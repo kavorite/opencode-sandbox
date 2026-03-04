@@ -8,6 +8,7 @@ import * as container from './container.js'
 import * as proxy from './proxy.js'
 import * as policy from './policy.js'
 import * as store from './store.js'
+import { parseStrace } from './strace.js'
 import { connect } from './docker.js'
 import type { SessionState } from './container.js'
 import type { ProxyState } from './proxy.js'
@@ -27,7 +28,10 @@ const plugin: Plugin = async (input: PluginInput): Promise<Hooks> => {
   }
 
   const cfg = await config.load(input.directory)
-  const project = input.directory
+  // worktree = git working tree root (bind mount + policy boundary)
+  // cwd = session working directory (where commands execute, may be a subdir of worktree)
+  const project = input.worktree || input.directory
+  const cwd = input.directory
   const home = os.homedir()
   const docker = connect()
   const sessionId = `oc-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
@@ -49,10 +53,28 @@ const plugin: Plugin = async (input: PluginInput): Promise<Hooks> => {
       const originalCommand = args.command
 
       // Run the command inside Docker NOW — before bash.ts spawns it on the host
-      const execResult = await container.exec(state, originalCommand, project)
+      // Run the command inside Docker NOW — before bash.ts spawns it on the host
+      // Recover from stale/missing container by reinitializing the session
+      let execResult: Awaited<ReturnType<typeof container.exec>>
+      try {
+        execResult = await container.exec(state, originalCommand, cwd)
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err)
+        if (msg.includes('no such container') || msg.includes('No such container')) {
+          // Container was removed externally — reinitialize and retry once
+          const newState = await container.init(docker, project, home, sessionId, cfg)
+          Object.assign(state, newState)
+          execResult = await container.exec(state, originalCommand, cwd)
+        } else {
+          throw err
+        }
+      }
 
       // Get filesystem diff
       const diffResult = await container.inspect(state)
+
+      // Parse strace output for SSH commands and network connections
+      const traced = execResult.straceLog ? parseStrace(execResult.straceLog) : { ssh: [], network: [] }
 
       // Get network data from proxy logs if observe mode
       const networkData = proxyState
@@ -64,12 +86,12 @@ const plugin: Plugin = async (input: PluginInput): Promise<Hooks> => {
         files: diffResult.files,
         writes: diffResult.writes,
         mutations: diffResult.mutations,
-        network: [],
+        network: traced.network,
         sockets: [],
         dns: networkData.dns,
         http: networkData.http,
         tls: networkData.tls,
-        ssh: [],
+        ssh: traced.ssh,
         duration: 0,
         timedOut: false,
         violations: [],
@@ -119,7 +141,7 @@ const plugin: Plugin = async (input: PluginInput): Promise<Hooks> => {
         if (!filepath) return
         const targets = filepath.includes(', ') ? filepath.split(', ') : [filepath]
         const blocked = targets
-          .map((t) => (path.isAbsolute(t) ? t : path.resolve(project, t)))
+          .map((t) => (path.isAbsolute(t) ? t : path.resolve(cwd, t)))
           .filter((t) => !policy.writable(t, path.resolve(project), cfg.filesystem.allow_write))
         if (blocked.length === 0 && cfg.auto_allow_clean) {
           output.status = 'allow'
