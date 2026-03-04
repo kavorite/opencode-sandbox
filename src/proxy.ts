@@ -18,7 +18,8 @@ export type ProxyFlow = {
 }
 
 export type ProxyState = {
-  container: Dockerode.Container
+  /** The mitmproxy container — undefined for sub-agents sharing parent's proxy */
+  container?: Dockerode.Container
   logDir: string
   networkName: string
   sessionId: string
@@ -129,13 +130,16 @@ export function mapFlows(flows: ProxyFlow[]): { http: HttpRequest[]; tls: TlsInf
 }
 
 export async function stopProxy(state: ProxyState): Promise<void> {
-  try { await state.container.stop({ t: 1 }) } catch { /* already stopped */ }
-  try { await state.container.remove({ force: true }) } catch { /* already removed */ }
-  // Clean up log dir
-  await Bun.spawn(['rm', '-rf', state.logDir]).exited
+  if (state.container) {
+    try { await state.container.stop({ t: 1 }) } catch { /* already stopped */ }
+    try { await state.container.remove({ force: true }) } catch { /* already removed */ }
+    // Clean up log dir only if we own the proxy container
+    await Bun.spawn(['rm', '-rf', state.logDir]).exited
+  }
 }
 
 export async function getProxyCACert(state: ProxyState): Promise<string> {
+  if (!state.container) throw new Error('Cannot get CA cert from shared proxy state')
   // mitmproxy stores CA cert at /home/mitmproxy/.mitmproxy/mitmproxy-ca-cert.pem inside container
   const exec = await state.container.exec({
     Cmd: ['cat', '/home/mitmproxy/.mitmproxy/mitmproxy-ca-cert.pem'],
