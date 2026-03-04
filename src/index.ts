@@ -18,6 +18,13 @@ import { getParser, stripSentinels } from './parse.js'
 // Stashed original commands keyed by callID — used to relay real command in shell.env / logging
 const originalCommands = new Map<string, string>()
 
+// Read-like permissions — auto-allow unless path is in deny_read
+const READ_PERMISSIONS = new Set(['read', 'glob', 'grep', 'list', 'lsp'])
+// Non-path permissions that are inherently safe for sub-agents
+const SAFE_PERMISSIONS = new Set([
+  'todoread', 'todowrite', 'codesearch', 'websearch', 'webfetch', 'question', 'task', 'skill',
+])
+
 const plugin: Plugin = async (input: PluginInput): Promise<Hooks> => {
   // Nesting detection — if running inside a sandbox container, return empty hooks.
   // We use a container-specific env var (OC_SANDBOX_CONTAINER) set only in the Docker
@@ -188,6 +195,31 @@ const plugin: Plugin = async (input: PluginInput): Promise<Hooks> => {
         return
       }
 
+      // Read-like tools: auto-allow unless path is in deny_read
+      if (READ_PERMISSIONS.has(info.type)) {
+        if (!cfg.auto_allow_clean) return
+        const filepath = (info.metadata as Record<string, unknown> | undefined)?.filepath as string | undefined
+        if (filepath) {
+          const targets = filepath.includes(', ') ? filepath.split(', ') : [filepath]
+          const hasDenied = targets
+            .map((t) => (path.isAbsolute(t) ? t : path.resolve(cwd, t)))
+            .some((t) => cfg.filesystem.deny_read.some((d) => {
+              const resolved = path.resolve(d)
+              return t === resolved || t.startsWith(resolved + '/')
+            }))
+          if (hasDenied) return
+        }
+        output.status = 'allow'
+        return
+      }
+
+      // Safe non-path tools: auto-allow unconditionally
+      if (SAFE_PERMISSIONS.has(info.type)) {
+        if (!cfg.auto_allow_clean) return
+        output.status = 'allow'
+        return
+      }
+
       // NOTE: 'bash' permission.ask is NOT triggered by PermissionNext (current opencode).
       // Bash auto-approval for sub-agents is handled via the 'event' hook below instead.
     },
@@ -243,6 +275,8 @@ const plugin: Plugin = async (input: PluginInput): Promise<Hooks> => {
     // events.  We intercept these events to:
     //   1. Auto-reply for bash commands the sandbox already evaluated as clean
     //   2. Enforce path-based policy for file edits/writes outside the project directory
+    //   3. Auto-allow read-like tools (read, glob, grep, list, lsp) unless path is denied
+    //   4. Auto-allow safe non-path tools (todoread, codesearch, websearch, etc.)
     'event': async ({ event }) => {
       if ((event as any).type !== 'permission.asked') return
       const req = (event as any).properties as {
@@ -298,6 +332,45 @@ const plugin: Plugin = async (input: PluginInput): Promise<Hooks> => {
           }
         }
         // blocked.length > 0 → don't reply → user gets prompted
+        return
+      }
+
+      // --- Read-like tools: auto-approve unless path is denied ---
+      if (READ_PERMISSIONS.has(req.permission)) {
+        if (!cfg.auto_allow_clean) return
+        const filepath = req.metadata?.filepath as string | undefined
+        if (filepath) {
+          const targets = filepath.includes(', ') ? filepath.split(', ') : [filepath]
+          const hasDenied = targets
+            .map((t) => (path.isAbsolute(t) ? t : path.resolve(cwd, t)))
+            .some((t) => cfg.filesystem.deny_read.some((d) => {
+              const resolved = path.resolve(d)
+              return t === resolved || t.startsWith(resolved + '/')
+            }))
+          if (hasDenied) return // denied path → let user decide
+        }
+        try {
+          await (input.client as any).permission.reply({
+            requestID: req.id,
+            reply: 'always',
+          })
+        } catch {
+          // Already replied or request expired — no-op
+        }
+        return
+      }
+
+      // --- Safe non-path tools: auto-approve for sub-agents ---
+      if (SAFE_PERMISSIONS.has(req.permission)) {
+        if (!cfg.auto_allow_clean) return
+        try {
+          await (input.client as any).permission.reply({
+            requestID: req.id,
+            reply: 'always',
+          })
+        } catch {
+          // Already replied or request expired — no-op
+        }
         return
       }
     },
