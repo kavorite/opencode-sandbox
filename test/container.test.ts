@@ -264,6 +264,12 @@ describe('init — git worktree bind mounts', () => {
     // Must NOT have :ro suffix — git needs write access for refs/remotes, packed-refs
     expect(gitBind).toBe(`${commonGitDir}:${commonGitDir}`)
     expect(gitBind).not.toContain(':ro')
+    // The base worktree root (main-repo/) should also be mounted rw so git
+    // merge/checkout can update working tree files (not just the .git dir)
+    const baseWorktreeBind = state.binds.find(b => b.startsWith(mainRepo + ':'))
+    expect(baseWorktreeBind).toBeDefined()
+    expect(baseWorktreeBind).toBe(`${mainRepo}:${mainRepo}`)
+    expect(baseWorktreeBind).not.toContain(':ro')
   })
 
   test('non-worktree .git directory does not add extra git bind', async () => {

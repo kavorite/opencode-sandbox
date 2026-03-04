@@ -143,6 +143,14 @@ export async function init(
       if (fs.existsSync(commonGitDir) && !binds.some(b => b.split(':')[0] === commonGitDir)) {
         binds.push(`${commonGitDir}:${commonGitDir}`)
       }
+      // Also mount the base worktree's working directory rw so git operations
+      // that update working tree files (merge --ff-only, checkout) work from
+      // inside the sandbox. Without this, the base worktree's files fall under
+      // HOME:ro and git fails with "Read-only file system".
+      const baseWorktree = path.resolve(commonGitDir, '..')
+      if (fs.existsSync(baseWorktree) && !binds.some(b => b.split(':')[0] === baseWorktree)) {
+        binds.push(`${baseWorktree}:${baseWorktree}`)
+      }
     }
   }
 
