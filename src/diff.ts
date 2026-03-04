@@ -85,12 +85,9 @@ export const mapChanges = (
     // Skip paths that are (or are parents of) bind-mounted directories —
     // Docker records bind mount points as 'modified' even though the command didn't touch them.
     if (bindPaths.some((bp) => isUnder(path, bp) || isUnder(bp, path))) continue
-    // Exclude SSH infrastructure writes in the container's home — git commands legitimately
-    // create/update known_hosts there and the .ssh dir itself. These are ephemeral.
-    if (containerHome && isUnder(path, containerHome + '/.ssh')) continue
-    // Exclude metadata-only (Kind=0) changes on the container home dir itself —
-    // Docker records the parent dir as 'modified' when children are written.
-    if (containerHome && kind === 0 && path === containerHome) continue
+    // The container user's home (/home/sandbox) is ephemeral — it never
+    // affects the host and is recreated each session. Exclude all writes there.
+    if (containerHome && isUnder(path, containerHome)) continue
     // Baseline diffing: skip anything already present before the command ran.
     // This filters out runtime-injected artifacts (GPU drivers, ldconfig, etc.)
     // without needing heuristics about paths or root escalation.
