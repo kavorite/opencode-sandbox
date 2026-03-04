@@ -147,9 +147,12 @@ const plugin: Plugin = async (input: PluginInput): Promise<Hooks> => {
       }
 
       // Sentinel strategy:
-      //   Clean:     shell comment → bash skips permission prompt (no command nodes for tree-sitter)
-      //   Violation: original command → bash fires permission prompt; if user approves, command runs on host
+      //   Clean:     shell comment → bash skips tree-sitter command detection (no nodes)
+      //   Violation: original command → bash detects ops → PermissionNext prompts user
       //              If user denies, the command is blocked on host (Docker already rolled back).
+      //
+      //   The event hook below auto-replies to PermissionNext for clean commands so
+      //   sub-agent sessions (which start with an empty permission ruleset) don't prompt.
       args.command = violations.length > 0
         ? originalCommand                          // violation: prompt user; if approved, runs on host
         : `# [sandboxed] ${originalCommand}`       // clean: no-op comment, no prompt
@@ -177,7 +180,7 @@ const plugin: Plugin = async (input: PluginInput): Promise<Hooks> => {
       }
 
       // NOTE: 'bash' permission.ask is NOT triggered by PermissionNext (current opencode).
-      // Bash interception happens in tool.execute.before instead.
+      // Bash auto-approval for sub-agents is handled via the 'event' hook below instead.
     },
 
     'tool.execute.after': async (info, output) => {
@@ -224,6 +227,44 @@ const plugin: Plugin = async (input: PluginInput): Promise<Hooks> => {
         'The sandbox auto-approves clean commands and prompts the user only for genuine violations (git push, writes outside project dir).',
         'Command output is relayed back to you transparently — you will see stdout/stderr as if the command ran on the host.',
       ].join(' '))
+    },
+
+    // PermissionNext (the new permission system used by the bash tool) does NOT call
+    // Plugin.trigger('permission.ask').  Instead it publishes 'permission.asked' bus
+    // events.  Sub-agent sessions start with an empty ruleset, so every bash command
+    // would prompt the user.  We intercept the event and auto-reply for commands the
+    // sandbox already evaluated as clean.
+    'event': async ({ event }) => {
+      if ((event as any).type !== 'permission.asked') return
+      const req = (event as any).properties as {
+        id: string
+        sessionID: string
+        permission: string
+        patterns: string[]
+        metadata: Record<string, unknown>
+        always: string[]
+        tool?: { messageID: string; callID: string }
+      } | undefined
+      if (!req || req.permission !== 'bash') return
+
+      const callID = req.tool?.callID
+      if (!callID) return
+
+      const result = store.peek(callID)
+      if (!result || result.violations.length > 0) return // violations → let user decide
+
+      if (!cfg.auto_allow_clean) return
+
+      // Clean command already executed in Docker — auto-approve so sub-agents aren't blocked.
+      // 'always' adds a session-scoped rule, preventing repeat prompts in the same session.
+      try {
+        await (input.client as any).permission.reply({
+          requestID: req.id,
+          reply: 'always',
+        })
+      } catch {
+        // Already replied or request expired — no-op
+      }
     },
   }
 }

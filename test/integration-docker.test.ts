@@ -94,7 +94,7 @@ describe('opencode-sandbox Docker integration', () => {
     }
   }, 15000)
 
-  test('plugin initializes and returns 4 hooks', async () => {
+  test('plugin initializes and returns 6 hooks', async () => {
     const hooks = await plugin({
       directory: TEST_PROJECT,
       worktree: TEST_PROJECT,
@@ -102,6 +102,8 @@ describe('opencode-sandbox Docker integration', () => {
     })
     const keys = Object.keys(hooks).sort()
     expect(keys).toEqual([
+      'event',
+      'experimental.chat.system.transform',
       'permission.ask',
       'shell.env',
       'tool.execute.after',

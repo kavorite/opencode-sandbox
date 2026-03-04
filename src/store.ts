@@ -68,6 +68,11 @@ export function get(callID: string): SandboxResult | undefined {
   return result
 }
 
+ /** Read without consuming — result stays in the map for tool.execute.after to collect. */
+export function peek(callID: string): SandboxResult | undefined {
+  return results.get(callID)
+}
+
 export function clear() {
   results.clear()
 }
