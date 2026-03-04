@@ -42,6 +42,8 @@ function makeState(overrides?: Partial<SessionState>): SessionState {
     binds: [],
     env: [],
     gpu: false,
+    networkMode: 'oc-sandbox-test-session',
+    ownsNetwork: true,
     baseline: new Set(),
     ...overrides,
   }
@@ -176,13 +178,31 @@ describe('teardown', () => {
       listNetworks: mock(() => Promise.resolve([])),
     } as unknown as Dockerode
 
-    const state = makeState({ container, network, dockerClient })
+    const state = makeState({ container, network, dockerClient, ownsNetwork: true })
 
     await teardown(state)
 
     expect(container.stop).toHaveBeenCalled()
     expect(container.remove).toHaveBeenCalled()
     expect(network.remove).toHaveBeenCalled()
+    expect(cleanupMock).toHaveBeenCalled()
+  })
+
+  test('does NOT remove network when ownsNetwork is false (sub-agent)', async () => {
+    const container = mockContainer()
+    const network = mockNetwork()
+    const dockerClient = {
+      listContainers: mock(() => Promise.resolve([])),
+      listNetworks: mock(() => Promise.resolve([])),
+    } as unknown as Dockerode
+
+    const state = makeState({ container, network, dockerClient, ownsNetwork: false })
+
+    await teardown(state)
+
+    expect(container.stop).toHaveBeenCalled()
+    expect(container.remove).toHaveBeenCalled()
+    expect(network.remove).not.toHaveBeenCalled()
     expect(cleanupMock).toHaveBeenCalled()
   })
 })
