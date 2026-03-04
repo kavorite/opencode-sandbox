@@ -25,6 +25,10 @@ export type SessionState = {
   binds: string[]
   env: string[]
   gpu: boolean
+  /** Docker network mode (network name) used when creating containers */
+  networkMode: string
+  /** Whether this session owns the Docker network (false for sub-agents sharing parent's network) */
+  ownsNetwork: boolean
   /** Baseline container.changes() snapshot — changes present before any command runs.
    *  Used to compute deltas so runtime-injected artifacts (GPU drivers etc.) are excluded. */
   baseline: Set<string>
@@ -36,11 +40,31 @@ export async function init(
   home: string,
   sessionId: string,
   config: SandboxConfig,
+  existingNetworkName?: string,
 ): Promise<SessionState> {
-  const networkName = `oc-sandbox-${sessionId}`
+  let networkName: string
+  let network: Dockerode.Network
+  let ownsNetwork: boolean
 
-  // Create network for container isolation (still useful for labeling + observe mode)
-  const network = await docker.createNetwork(dockerClient, networkName, sessionId)
+  if (existingNetworkName) {
+    // Sub-agent: join parent's existing network (verify it still exists)
+    try {
+      network = dockerClient.getNetwork(existingNetworkName)
+      await network.inspect()
+      networkName = existingNetworkName
+      ownsNetwork = false
+    } catch {
+      // Parent's network gone — create our own
+      networkName = `oc-sandbox-${sessionId}`
+      network = await docker.createNetwork(dockerClient, networkName, sessionId)
+      ownsNetwork = true
+    }
+  } else {
+    // Primary session: create new network
+    networkName = `oc-sandbox-${sessionId}`
+    network = await docker.createNetwork(dockerClient, networkName, sessionId)
+    ownsNetwork = true
+  }
 
   // Ensure image exists
   const imageName = await ensureImage(dockerClient)
@@ -171,6 +195,8 @@ export async function init(
     binds,
     env,
     gpu: containerOpts.gpu,
+    networkMode: networkName,
+    ownsNetwork,
     baseline,
   }
 
@@ -246,6 +272,7 @@ export async function reject(state: SessionState): Promise<void> {
     image: state.imageTag,
     cmd: ['sleep', 'infinity'],
     binds: state.binds,
+    networkMode: state.networkMode,
     env: state.env,
     workingDir: state.project,
     gpu: state.gpu,
@@ -260,8 +287,10 @@ export async function teardown(state: SessionState): Promise<void> {
   try { await state.container.stop({ t: 1 }) } catch { /* already stopped */ }
   try { await state.container.remove({ force: true }) } catch { /* already removed */ }
 
-  // Remove network
-  try { await state.network.remove() } catch { /* already removed */ }
+  // Remove network only if this session owns it (sub-agents share parent's network)
+  if (state.ownsNetwork) {
+    try { await state.network.remove() } catch { /* already removed */ }
+  }
 
   // Clean up all committed images for this session (label-based)
   await docker.cleanup(state.dockerClient, state.sessionId)
