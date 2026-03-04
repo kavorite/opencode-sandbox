@@ -281,10 +281,12 @@ describe('init — git worktree bind mounts', () => {
       makeSandboxConfig(),
     )
 
-    // Should only have $HOME:ro and $project:rw — no extra git bind
-    // (The binds array will have 2 entries: home + project)
+    // Should only have the two host mounts, $HOME:ro and $project:rw — no extra binds
     const nonStandardBinds = state.binds.filter(
-      b => !b.startsWith('/home/user:') && !b.startsWith(normalProject + ':')
+      b => b !== '/usr/lib:/usr/lib:ro' &&
+           b !== '/usr:/host/usr:ro' &&
+           !b.startsWith('/home/user:') &&
+           !b.startsWith(normalProject + ':')
     )
     expect(nonStandardBinds).toHaveLength(0)
   })

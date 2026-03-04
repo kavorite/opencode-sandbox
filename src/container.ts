@@ -69,12 +69,19 @@ export async function init(
   // Ensure image exists
   const imageName = await ensureImage(dockerClient)
 
-  // Build env vars — forward host environment for transparent execution
-  // Merge host PATH with container-essential paths: modern distros merge /bin → /usr/bin
-  // (symlink) so host PATH may omit /bin, but Alpine has /bin as a real separate directory.
+  // Build env vars — forward host environment for transparent execution.
+  // Host /usr is mounted read-only at /host/usr so the container inherits every host-
+  // installed tool and the correct glibc version without baking anything into the image.
+  // Prepend /host/usr/bin first so host tools shadow the minimal Arch base binaries.
+  const HOST_USR = '/host/usr'
+  const HOST_USR_PATHS = [`${HOST_USR}/bin`, `${HOST_USR}/local/bin`]
   const CONTAINER_PATHS = ['/usr/local/sbin', '/usr/local/bin', '/usr/sbin', '/usr/bin', '/sbin', '/bin']
   const hostPathParts = (process.env.PATH ?? '').split(':').filter(Boolean)
-  const mergedPath = [...hostPathParts, ...CONTAINER_PATHS.filter(p => !hostPathParts.includes(p))].join(':')
+  const mergedPath = [
+    ...HOST_USR_PATHS,
+    ...hostPathParts,
+    ...CONTAINER_PATHS.filter(p => !hostPathParts.includes(p) && !HOST_USR_PATHS.includes(p)),
+  ].join(':')
   const env = [
     `HOME=${home}`,
     `PATH=${mergedPath}`,
@@ -90,6 +97,7 @@ export async function init(
     'NVM_DIR', 'PYENV_ROOT', 'VIRTUAL_ENV', 'CONDA_DEFAULT_ENV',
     'XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_CACHE_HOME',
     'NODE_OPTIONS', 'EDITOR', 'VISUAL', 'DOCKER_HOST',
+    'GH_TOKEN', 'GITHUB_TOKEN',
   ] as const
   for (const key of FORWARD_ENV) {
     if (process.env[key]) env.push(`${key}=${process.env[key]}`)
@@ -99,9 +107,17 @@ export async function init(
     env.push('HTTPS_PROXY=http://mitmproxy:8080')
   }
 
-  // Bind mounts: $HOME read-only (gives access to ~/.local/bin, ~/.cargo, ~/.nvm, etc.)
-  // + project dir read-write (Docker overlapping mount: more-specific path wins)
+  // Bind mounts:
+  //   /usr/lib → /usr/lib:ro  — mount host libs at the standard path so host
+  //     programs find their deps (e.g. libz-ng for git) without LD_LIBRARY_PATH.
+  //     Safe because host and container are both Arch; glibc ABI is compatible.
+  //   /usr → /host/usr:ro     — full host /usr tree so PATH can include
+  //     /host/usr/bin and programs find their share data via their own prefix.
+  //   $HOME → $HOME:ro        — ~/.local/bin, ~/.cargo/bin, ~/.config/gh, etc.
+  //   $project → $project     — read-write for the agent's actual work
   const binds = [
+    '/usr/lib:/usr/lib:ro',
+    `/usr:${HOST_USR}:ro`,
     `${home}:${home}:ro`,
     `${project}:${project}`,
   ]
