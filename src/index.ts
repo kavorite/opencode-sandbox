@@ -290,6 +290,16 @@ const plugin: Plugin = async (input: PluginInput): Promise<Hooks> => {
       } | undefined
       if (!req) return
 
+      // Helper: reply to a PermissionNext request via the SDK's REST endpoint.
+      // Uses the generated client method (POST /session/{id}/permissions/{permissionID}).
+      const replyPermission = async (response: 'once' | 'always' | 'reject') => {
+        await input.client.postSessionIdPermissionsPermissionId({
+          path: { id: req.sessionID, permissionID: req.id },
+          body: { response },
+        })
+      }
+
+
       // --- Bash commands: auto-approve if sandbox evaluated as clean ---
       if (req.permission === 'bash') {
         const callID = req.tool?.callID
@@ -303,10 +313,7 @@ const plugin: Plugin = async (input: PluginInput): Promise<Hooks> => {
         // Clean command already executed in Docker — auto-approve so sub-agents aren't blocked.
         // 'always' adds a session-scoped rule, preventing repeat prompts in the same session.
         try {
-          await (input.client as any).permission.reply({
-            requestID: req.id,
-            reply: 'always',
-          })
+          await replyPermission('always')
         } catch {
           // Already replied or request expired — no-op
         }
@@ -323,10 +330,7 @@ const plugin: Plugin = async (input: PluginInput): Promise<Hooks> => {
           .filter((t) => !policy.writable(t, path.resolve(project), cfg.filesystem.allow_write))
         if (blocked.length === 0 && cfg.auto_allow_clean) {
           try {
-            await (input.client as any).permission.reply({
-              requestID: req.id,
-              reply: 'always',
-            })
+            await replyPermission('always')
           } catch {
             // Already replied or request expired — no-op
           }
@@ -350,10 +354,7 @@ const plugin: Plugin = async (input: PluginInput): Promise<Hooks> => {
           if (hasDenied) return // denied path → let user decide
         }
         try {
-          await (input.client as any).permission.reply({
-            requestID: req.id,
-            reply: 'always',
-          })
+          await replyPermission('always')
         } catch {
           // Already replied or request expired — no-op
         }
@@ -364,10 +365,7 @@ const plugin: Plugin = async (input: PluginInput): Promise<Hooks> => {
       if (SAFE_PERMISSIONS.has(req.permission)) {
         if (!cfg.auto_allow_clean) return
         try {
-          await (input.client as any).permission.reply({
-            requestID: req.id,
-            reply: 'always',
-          })
+          await replyPermission('always')
         } catch {
           // Already replied or request expired — no-op
         }
