@@ -147,15 +147,24 @@ const plugin: Plugin = async (input: PluginInput): Promise<Hooks> => {
       }
 
       // Sentinel strategy:
-      //   Clean:     shell comment → bash skips tree-sitter command detection (no nodes)
+      //   Clean (single-line): shell comment → bash skips tree-sitter command detection (no nodes)
+      //   Clean (multi-line):  heredoc to `:` (null cmd) → tree-sitter sees no executable commands
       //   Violation: original command → bash detects ops → PermissionNext prompts user
       //              If user denies, the command is blocked on host (Docker already rolled back).
       //
       //   The event hook below auto-replies to PermissionNext for clean commands so
       //   sub-agent sessions (which start with an empty permission ruleset) don't prompt.
-      args.command = violations.length > 0
-        ? originalCommand                          // violation: prompt user; if approved, runs on host
-        : `# [sandboxed] ${originalCommand}`       // clean: no-op comment, no prompt
+      //
+      //   NOTE: `#` only comments to end-of-line — multiline commands would leave lines 2+
+      //   as executable bash, triggering spurious PermissionNext prompts (e.g. `gh api graphql`).
+      //   The heredoc wrapper makes the entire command inert regardless of line count.
+      if (violations.length > 0) {
+        args.command = originalCommand                  // violation: prompt user; if approved, runs on host
+      } else if (originalCommand.includes('\n')) {
+        args.command = `: <<'__OC_SANDBOXED__'\n${originalCommand}\n__OC_SANDBOXED__`
+      } else {
+        args.command = `# [sandboxed] ${originalCommand}`
+      }
     },
 
     'permission.ask': async (info, output) => {

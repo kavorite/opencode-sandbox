@@ -30,6 +30,13 @@ export async function getParser(): Promise<ParserType> {
 }
 
 export function stripSentinels(command: string, parser: ParserType): string {
+  // Heredoc sentinel (multiline wrapper): : <<'__OC_SANDBOXED__'\n...\n__OC_SANDBOXED__
+  // Regex is cheaper than tree-walking heredoc AST nodes, and handles nesting via recursion.
+  const heredocRe = /^:\s*<<\s*'__OC_SANDBOXED__'\n([\s\S]*)\n__OC_SANDBOXED__\s*$/
+  const heredocMatch = command.match(heredocRe)
+  if (heredocMatch) return stripSentinels(heredocMatch[1]!, parser)
+
+  // Single-line comment sentinel: # [sandboxed] <command>
   const tree = parser.parse(command)
   if (!tree) return command
   const pieces: string[] = []
