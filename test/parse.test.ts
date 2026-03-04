@@ -1,5 +1,6 @@
-import { describe, test, expect } from 'bun:test'
-import { parseGraphQLBody } from '../src/parse'
+import { describe, test, expect, beforeAll } from 'bun:test'
+import { parseGraphQLBody, stripSentinels, getParser } from '../src/parse'
+import type { Parser as ParserType } from 'web-tree-sitter'
 
 describe('parseGraphQLBody', () => {
   test('detects named query', () => {
@@ -159,3 +160,61 @@ describe('parseGraphQLBody', () => {
     expect(result).toEqual({ type: 'query', name: 'IntrospectionQuery' })
   })
 })
+
+describe('stripSentinels', () => {
+  let parser: ParserType
+
+  beforeAll(async () => {
+    parser = await getParser()
+  })
+
+  test('strips single-line comment sentinel', () => {
+    const input = '# [sandboxed] echo hello'
+    expect(stripSentinels(input, parser)).toBe('echo hello')
+  })
+
+  test('strips single-line sentinel with extra whitespace', () => {
+    const input = '#  [sandboxed]   ls -la'
+    expect(stripSentinels(input, parser)).toBe('ls -la')
+  })
+
+  test('returns original command when no sentinel', () => {
+    const input = 'echo hello'
+    expect(stripSentinels(input, parser)).toBe('echo hello')
+  })
+
+  test('strips double-nested comment sentinels', () => {
+    const input = '# [sandboxed] # [sandboxed] echo hello'
+    expect(stripSentinels(input, parser)).toBe('echo hello')
+  })
+
+  test('strips heredoc sentinel (multiline command)', () => {
+    const cmd = "gh api graphql -f query='query {\n  repository(owner: \"Org\", name: \"repo\") {\n    pullRequest(number: 1) { title }\n  }\n}'"
+    const input = `: <<'__OC_SANDBOXED__'\n${cmd}\n__OC_SANDBOXED__`
+    expect(stripSentinels(input, parser)).toBe(cmd)
+  })
+
+  test('strips heredoc sentinel preserving inner newlines', () => {
+    const cmd = 'echo line1\necho line2\necho line3'
+    const input = `: <<'__OC_SANDBOXED__'\n${cmd}\n__OC_SANDBOXED__`
+    expect(stripSentinels(input, parser)).toBe(cmd)
+  })
+
+  test('strips double-nested heredoc sentinel', () => {
+    const cmd = 'echo hello'
+    const inner = `: <<'__OC_SANDBOXED__'\n${cmd}\n__OC_SANDBOXED__`
+    const outer = `: <<'__OC_SANDBOXED__'\n${inner}\n__OC_SANDBOXED__`
+    expect(stripSentinels(outer, parser)).toBe(cmd)
+  })
+
+  test('does not strip non-sentinel comments', () => {
+    const input = '# just a regular comment'
+    expect(stripSentinels(input, parser)).toBe('# just a regular comment')
+  })
+
+  test('does not strip non-sentinel heredocs', () => {
+    const input = ": <<'EOF'\nhello\nEOF"
+    expect(stripSentinels(input, parser)).toBe(input)
+  })
+})
+
