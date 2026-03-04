@@ -229,11 +229,11 @@ const plugin: Plugin = async (input: PluginInput): Promise<Hooks> => {
       ].join(' '))
     },
 
-    // PermissionNext (the new permission system used by the bash tool) does NOT call
+    // PermissionNext (the new permission system) does NOT call
     // Plugin.trigger('permission.ask').  Instead it publishes 'permission.asked' bus
-    // events.  Sub-agent sessions start with an empty ruleset, so every bash command
-    // would prompt the user.  We intercept the event and auto-reply for commands the
-    // sandbox already evaluated as clean.
+    // events.  We intercept these events to:
+    //   1. Auto-reply for bash commands the sandbox already evaluated as clean
+    //   2. Enforce path-based policy for file edits/writes outside the project directory
     'event': async ({ event }) => {
       if ((event as any).type !== 'permission.asked') return
       const req = (event as any).properties as {
@@ -245,25 +245,51 @@ const plugin: Plugin = async (input: PluginInput): Promise<Hooks> => {
         always: string[]
         tool?: { messageID: string; callID: string }
       } | undefined
-      if (!req || req.permission !== 'bash') return
+      if (!req) return
 
-      const callID = req.tool?.callID
-      if (!callID) return
+      // --- Bash commands: auto-approve if sandbox evaluated as clean ---
+      if (req.permission === 'bash') {
+        const callID = req.tool?.callID
+        if (!callID) return
 
-      const result = store.peek(callID)
-      if (!result || result.violations.length > 0) return // violations → let user decide
+        const result = store.peek(callID)
+        if (!result || result.violations.length > 0) return // violations → let user decide
 
-      if (!cfg.auto_allow_clean) return
+        if (!cfg.auto_allow_clean) return
 
-      // Clean command already executed in Docker — auto-approve so sub-agents aren't blocked.
-      // 'always' adds a session-scoped rule, preventing repeat prompts in the same session.
-      try {
-        await (input.client as any).permission.reply({
-          requestID: req.id,
-          reply: 'always',
-        })
-      } catch {
-        // Already replied or request expired — no-op
+        // Clean command already executed in Docker — auto-approve so sub-agents aren't blocked.
+        // 'always' adds a session-scoped rule, preventing repeat prompts in the same session.
+        try {
+          await (input.client as any).permission.reply({
+            requestID: req.id,
+            reply: 'always',
+          })
+        } catch {
+          // Already replied or request expired — no-op
+        }
+        return
+      }
+
+      // --- File edits/writes: path-based policy (mirrors permission.ask handler) ---
+      if (req.permission === 'edit' || req.permission === 'write' || req.permission === 'apply_patch') {
+        const filepath = req.metadata?.filepath as string | undefined
+        if (!filepath) return
+        const targets = filepath.includes(', ') ? filepath.split(', ') : [filepath]
+        const blocked = targets
+          .map((t) => (path.isAbsolute(t) ? t : path.resolve(cwd, t)))
+          .filter((t) => !policy.writable(t, path.resolve(project), cfg.filesystem.allow_write))
+        if (blocked.length === 0 && cfg.auto_allow_clean) {
+          try {
+            await (input.client as any).permission.reply({
+              requestID: req.id,
+              reply: 'always',
+            })
+          } catch {
+            // Already replied or request expired — no-op
+          }
+        }
+        // blocked.length > 0 → don't reply → user gets prompted
+        return
       }
     },
   }

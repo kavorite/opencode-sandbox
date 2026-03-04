@@ -346,3 +346,116 @@ describe('opencode-sandbox git worktree integration', () => {
     expect(trackingRef).toMatch(/^[0-9a-f]{40}$/)
   }, 60000)
 })
+
+// ---------------------------------------------------------------------------
+// Permission event handler tests (edit/write/apply_patch outside project dir)
+// Verifies that permission.asked events for file tools are intercepted and
+// that writes outside the project directory are NOT auto-approved.
+// ---------------------------------------------------------------------------
+
+describe('opencode-sandbox permission.asked event for file tools', () => {
+  let hooks: Awaited<ReturnType<typeof plugin>>
+  let permissionReplyCalls: Array<{ requestID: string; reply: string }>
+
+  beforeAll(async () => {
+    permissionReplyCalls = []
+    hooks = await plugin({
+      directory: TEST_PROJECT,
+      worktree: TEST_PROJECT,
+      serverUrl: new URL('http://localhost:0'),
+      client: {
+        permission: {
+          reply: async (args: { requestID: string; reply: string }) => {
+            permissionReplyCalls.push(args)
+          },
+        },
+      },
+    } as any)
+  }, 30000)
+
+  function makePermissionEvent(permission: string, filepath: string, id?: string) {
+    return {
+      event: {
+        type: 'permission.asked',
+        properties: {
+          id: id ?? `perm-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          sessionID: 'test-session',
+          permission,
+          patterns: [filepath],
+          metadata: { filepath },
+          always: [],
+          tool: { messageID: 'msg-1', callID: 'call-1' },
+        },
+      },
+    }
+  }
+
+  test('auto-allows write to file inside project directory', async () => {
+    permissionReplyCalls = []
+    const evt = makePermissionEvent('write', path.join(TEST_PROJECT, 'some-file.md'))
+    await hooks['event']!(evt as any)
+    // Should have auto-approved via permission.reply
+    expect(permissionReplyCalls).toHaveLength(1)
+    expect(permissionReplyCalls[0]!.reply).toBe('always')
+  })
+
+  test('does NOT auto-allow write to file outside project directory', async () => {
+    permissionReplyCalls = []
+    const evt = makePermissionEvent('write', '/home/staly/other-repo/secret.md')
+    await hooks['event']!(evt as any)
+    // Should NOT have called permission.reply — user must be prompted
+    expect(permissionReplyCalls).toHaveLength(0)
+  })
+
+  test('auto-allows edit to file inside project directory', async () => {
+    permissionReplyCalls = []
+    const evt = makePermissionEvent('edit', path.join(TEST_PROJECT, 'src/index.ts'))
+    await hooks['event']!(evt as any)
+    expect(permissionReplyCalls).toHaveLength(1)
+    expect(permissionReplyCalls[0]!.reply).toBe('always')
+  })
+
+  test('does NOT auto-allow edit to file outside project directory', async () => {
+    permissionReplyCalls = []
+    const evt = makePermissionEvent('edit', '/home/staly/.claude/commands/draft-review.md')
+    await hooks['event']!(evt as any)
+    expect(permissionReplyCalls).toHaveLength(0)
+  })
+
+  test('does NOT auto-allow apply_patch to file outside project directory', async () => {
+    permissionReplyCalls = []
+    const evt = makePermissionEvent('apply_patch', '/etc/important-config')
+    await hooks['event']!(evt as any)
+    expect(permissionReplyCalls).toHaveLength(0)
+  })
+
+  test('auto-allows write to ephemeral path (e.g. /tmp)', async () => {
+    permissionReplyCalls = []
+    const evt = makePermissionEvent('write', '/tmp/scratch-file.txt')
+    await hooks['event']!(evt as any)
+    expect(permissionReplyCalls).toHaveLength(1)
+    expect(permissionReplyCalls[0]!.reply).toBe('always')
+  })
+
+  test('auto-allows write to configured allow_write path', async () => {
+    // This test uses the default config which has empty allow_write.
+    // Writes to paths outside project + ephemeral should be blocked.
+    permissionReplyCalls = []
+    const evt = makePermissionEvent('write', '/home/staly/work/external-repo/file.ts')
+    await hooks['event']!(evt as any)
+    expect(permissionReplyCalls).toHaveLength(0)
+  })
+
+  test('ignores non-permission.asked events', async () => {
+    permissionReplyCalls = []
+    await hooks['event']!({ event: { type: 'session.idle' } } as any)
+    expect(permissionReplyCalls).toHaveLength(0)
+  })
+
+  test('ignores permission.asked events for unknown permission types', async () => {
+    permissionReplyCalls = []
+    const evt = makePermissionEvent('unknown_tool', '/some/path')
+    await hooks['event']!(evt as any)
+    expect(permissionReplyCalls).toHaveLength(0)
+  })
+})
