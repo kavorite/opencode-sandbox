@@ -1,0 +1,28 @@
+TASK 9: Migrate src/store.ts to remove strace import
+======================================================
+
+COMPLETED: ✓
+
+Changes Made:
+- Line 1: Changed import from './strace' to './diff.js'
+  OLD: import type { FileOpen, FileWrite, FsMutation, NetConnect, NetSocket } from "./strace"
+  NEW: import type { FileOpen, FileWrite, FsMutation, NetConnect, NetSocket } from './diff.js'
+
+Verification Results:
+✓ No strace references in src/store.ts (grep returned no output)
+✓ set/get/clear functions work correctly
+✓ SandboxResult type imports successfully
+✓ Test 1: bun -e "import {set,get,clear} from './src/store.ts'; set('test', {files:[],writes:[],mutations:[],network:[],sockets:[],dns:[],http:[],tls:[],ssh:[],duration:0,timedOut:false,violations:[],stdout:'',stderr:'',exitCode:0}); const r = get('test'); console.log(r?.exitCode)" → Output: 0 ✓
+✓ Test 2: bun -e "import type {SandboxResult} from './src/store.ts'; console.log('ok')" → Output: ok ✓
+
+All fields preserved:
+- DnsQuery type: unchanged
+- Violation type: unchanged
+- HttpRequest type: unchanged
+- TlsInfo type: unchanged
+- SshInfo type: unchanged
+- SandboxResult type: unchanged (all 14 fields intact)
+- results Map: unchanged
+- set/get/clear functions: unchanged
+
+Status: Ready for next task

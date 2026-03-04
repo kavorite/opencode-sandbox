@@ -13,6 +13,7 @@ import { connect } from './docker.js'
 import type { SessionState } from './container.js'
 import type { ProxyState } from './proxy.js'
 import type { SandboxResult } from './store.js'
+import { getParser, stripSentinels } from './parse.js'
 
 // Stashed original commands keyed by callID — used to relay real command in shell.env / logging
 const originalCommands = new Map<string, string>()
@@ -49,27 +50,26 @@ const plugin: Plugin = async (input: PluginInput): Promise<Hooks> => {
   return {
     'tool.execute.before': async (info, output) => {
       if (info.tool !== 'bash') return
-      const args = output.args as { command: string }
+      const args = output.args as { command: string; workdir?: string }
       let originalCommand = args.command
 
-      // Defensive: strip sentinel prefix if agent accidentally added it
-      const SENTINEL_RE = /^(?:true\s+)?#\s*\[sandboxed\]\s*/
-      if (SENTINEL_RE.test(originalCommand)) {
-        originalCommand = originalCommand.replace(SENTINEL_RE, '')
-      }
+      // Strip sentinel comments using tree-sitter (handles double-prefixes, nested sentinels)
+      const parser = await getParser()
+      originalCommand = stripSentinels(originalCommand, parser)
 
       // Run the command inside Docker NOW — before bash.ts spawns it on the host
       // Recover from stale/missing container by reinitializing the session
       let execResult: Awaited<ReturnType<typeof container.exec>>
+      const execCwd = (args.workdir && path.isAbsolute(args.workdir)) ? args.workdir : cwd
       try {
-        execResult = await container.exec(state, originalCommand, cwd)
+        execResult = await container.exec(state, originalCommand, execCwd)
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err)
         if (msg.includes('no such container') || msg.includes('No such container')) {
           // Container was removed externally — reinitialize and retry once
           const newState = await container.init(docker, project, home, sessionId, cfg)
           Object.assign(state, newState)
-          execResult = await container.exec(state, originalCommand, cwd)
+          execResult = await container.exec(state, originalCommand, execCwd)
         } else {
           throw err
         }
@@ -125,12 +125,12 @@ const plugin: Plugin = async (input: PluginInput): Promise<Hooks> => {
       }
 
       // Sentinel strategy:
-      //   Clean: shell comment → bash skips permission prompt (auto-approved)
-      //   Violation: 'true # [sandboxed] ...' → bash fires permission prompt
-      //   In both cases the host runs a no-op; Docker already executed the real command.
+      //   Clean:     shell comment → bash skips permission prompt (no command nodes for tree-sitter)
+      //   Violation: original command → bash fires permission prompt; if user approves, command runs on host
+      //              If user denies, the command is blocked on host (Docker already rolled back).
       args.command = violations.length > 0
-        ? `true # [sandboxed] ${originalCommand}`   // prompt — user must approve
-        : `# [sandboxed] ${originalCommand}`         // silent — clean, no prompt
+        ? originalCommand                          // violation: prompt user; if approved, runs on host
+        : `# [sandboxed] ${originalCommand}`       // clean: no-op comment, no prompt
     },
 
     'permission.ask': async (info, output) => {
@@ -167,9 +167,11 @@ const plugin: Plugin = async (input: PluginInput): Promise<Hooks> => {
       const result = store.get(info.callID)
       if (result) {
         if (result.violations.length > 0) {
-          // Command was blocked — relay violation summary so agent knows
-          const summary = result.violations.map((v) => `[SANDBOX VIOLATION] ${v.type}: ${v.detail}`).join('\n')
-          output.output = `Command blocked by sandbox:\n${summary}`
+          // The original command was shown to the user. If approved, it ran on host — output is already correct.
+          // If denied, bash tool output will be the denial message — also correct.
+          // Prepend violation context so agent knows what was flagged.
+          const summary = result.violations.map((v) => `[sandbox flagged: ${v.type} - ${v.detail}]`).join('\n')
+          output.output = `${summary}\n${output.output ?? ''}`.trim()
         } else {
           const text = [result.stdout, result.stderr].filter(Boolean).join('\n')
           if (text) output.output = text

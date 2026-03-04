@@ -1,0 +1,33 @@
+#0 building with "default" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 236B done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for docker.io/library/alpine:3.19
+#2 DONE 0.1s
+
+#3 [internal] load .dockerignore
+#3 transferring context: 2B done
+#3 DONE 0.0s
+
+#4 [1/4] FROM docker.io/library/alpine:3.19@sha256:6baf43584bcb78f2e5847d1de515f23499913ac9f12bdf834811a3145eb11ca1
+#4 DONE 0.0s
+
+#5 [2/4] RUN apk add --no-cache bash git openssh-client curl coreutils ca-certificates
+#5 CACHED
+
+#6 [3/4] RUN adduser -D -h /home/sandbox sandbox
+#6 CACHED
+
+#7 [4/4] WORKDIR /workspace
+#7 CACHED
+
+#8 exporting to image
+#8 exporting layers done
+#8 writing image sha256:92e1b06a1d8ee07d726e8184fe9461de4a25fa9524bb3ba74ae02905ec1d3294 done
+#8 naming to docker.io/library/opencode-sandbox:local done
+#8 DONE 0.0s
+{"opencode-sandbox":"true"}
+26.9MB
+EXIT=0

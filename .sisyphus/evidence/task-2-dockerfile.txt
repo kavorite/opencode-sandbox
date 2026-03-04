@@ -1,0 +1,38 @@
+Task 2: Dockerfile + image.ts + image.test.ts
+==============================================
+Date: 2026-03-03
+
+## Files
+
+- Dockerfile (6 lines, Alpine 3.19 based)
+- src/image.ts (69 lines, ensureImage + buildImage)
+- test/image.test.ts (131 lines, 5 tests)
+
+## Docker Build
+
+$ docker build -t opencode-sandbox:local .
+Result: SUCCESS (all layers cached)
+Image: sha256:92e1b06a1d8ee07d726e8184fe9461de4a25fa9524bb3ba74ae02905ec1d3294
+
+## Docker Run Validations
+
+$ docker run --rm opencode-sandbox:local whoami
+Output: sandbox ✓
+
+$ docker run --rm opencode-sandbox:local which git
+Output: /usr/bin/git ✓
+
+## Test Results
+
+$ bun test test/image.test.ts
+5 pass, 0 fail, 8 expect() calls
+Ran 5 tests across 1 file. [11.00ms]
+
+Tests:
+  ensureImage
+    ✓ returns image tag when image already exists
+    ✓ calls buildImage when image does not exist
+  buildImage
+    ✓ throws on build failure
+    ✓ throws when image not found after successful build
+    ✓ returns tag on successful build

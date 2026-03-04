@@ -1,0 +1,2 @@
+$ bun -e "import plugin from './src/index.ts'; const h = await plugin({directory:'/tmp/oc-plugin-test', worktree:'/tmp/oc-plugin-test', serverUrl: new URL('http://localhost:0')}); console.log(Object.keys(h).sort().join(',')); await new Promise(r => setTimeout(r, 500)); process.exit(0);"
+permission.ask,shell.env,tool.execute.after,tool.execute.before

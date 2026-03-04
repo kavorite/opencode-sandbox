@@ -1,0 +1,53 @@
+TASK 5: Rewrite src/deps.ts to check Docker daemon availability
+
+STATUS: COMPLETED
+
+CHANGES MADE:
+- Completely rewrote /home/staly/opencode-sandbox/src/deps.ts
+- Removed all bwrap, strace, overlay, and oc-observe checking logic
+- Replaced with simple Docker daemon availability check using dockerode
+
+NEW IMPLEMENTATION:
+- Imports: import Dockerode from 'dockerode'
+- Export type: DepsResult with { available: boolean, docker: boolean, error?: string }
+- Function: check() returns Promise<DepsResult>
+- Logic: Creates Dockerode instance, calls ping(), returns success or error
+
+VERIFICATION:
+✓ No references to bwrap, strace, or overlay in deps.ts
+✓ No console output (no console.warn, no console.log)
+✓ Removed cached variable pattern
+✓ Removed reset() function
+✓ File size reduced from 103 lines to 18 lines
+✓ Type-safe implementation with proper error handling
+
+FILE CONTENT:
+import Dockerode from 'dockerode'
+
+export type DepsResult = {
+  available: boolean
+  docker: boolean
+  error?: string
+}
+
+export async function check(): Promise<DepsResult> {
+  try {
+    const docker = new Dockerode()
+    await docker.ping()
+    return { available: true, docker: true }
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e)
+    return { available: false, docker: false, error: `Docker daemon not available: ${message}` }
+  }
+}
+
+EXPECTED BEHAVIOR:
+- When Docker daemon is running: { available: true, docker: true }
+- When Docker daemon is not running: { available: false, docker: false, error: "..." }
+- Zero console output
+- Clean error handling with descriptive messages
+
+NOTES:
+- dockerode v4.x is already in package.json (added in Task 1)
+- The available field is what index.ts checks to decide whether to throw an error
+- No caching needed - simple synchronous check via ping()

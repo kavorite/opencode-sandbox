@@ -1,0 +1,14 @@
+bun test v1.3.10 (30e609e0)
+
+test/image.test.ts:
+(pass) ensureImage > returns image tag when image already exists
+(pass) ensureImage > calls buildImage when image does not exist
+(pass) buildImage > throws on build failure [2.00ms]
+(pass) buildImage > throws when image not found after successful build
+(pass) buildImage > returns tag on successful build
+
+ 5 pass
+ 0 fail
+ 8 expect() calls
+Ran 5 tests across 1 file. [10.00ms]
+EXIT=0

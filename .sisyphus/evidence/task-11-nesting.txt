@@ -1,0 +1,2 @@
+$ OC_SANDBOX=1 bun -e "import plugin from './src/index.ts'; const h = await plugin({directory:'/tmp/oc-plugin-test', worktree:'/tmp/oc-plugin-test', serverUrl: new URL('http://localhost:0')}); console.log(Object.keys(h).length);"
+0

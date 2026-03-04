@@ -1,0 +1,19 @@
+TASK: Add dockerode and testcontainers dependencies to package.json and remove postinstall script
+
+COMPLETED CHANGES:
+✓ Added to dependencies: "dockerode": "^4.0.2"
+✓ Added to dependencies: "@types/dockerode": "^3.3.32"
+✓ Added to devDependencies: "testcontainers": "^10.24.0"
+✓ Removed postinstall script from scripts section
+✓ Preserved existing dependencies: @opencode-ai/plugin, zod
+✓ Preserved all devDependencies: @tsconfig/bun, @types/node, @types/bun, typescript, @typescript/native-preview
+
+VERIFICATION:
+- package.json structure is valid JSON
+- All required dependencies are present
+- postinstall script has been removed
+- No other configuration files were modified
+
+NEXT STEPS:
+- Run bun install to download and lock dependencies (requires network access)
+- Verify imports work with bun -e commands

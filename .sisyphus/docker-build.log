@@ -1,0 +1,74 @@
+#0 building with "default" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 206B done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for docker.io/library/alpine:3.19
+#2 DONE 0.7s
+
+#3 [internal] load .dockerignore
+#3 transferring context: 2B done
+#3 DONE 0.0s
+
+#4 [1/4] FROM docker.io/library/alpine:3.19@sha256:6baf43584bcb78f2e5847d1de515f23499913ac9f12bdf834811a3145eb11ca1
+#4 resolve docker.io/library/alpine:3.19@sha256:6baf43584bcb78f2e5847d1de515f23499913ac9f12bdf834811a3145eb11ca1 done
+#4 sha256:6baf43584bcb78f2e5847d1de515f23499913ac9f12bdf834811a3145eb11ca1 8.08kB / 8.08kB done
+#4 sha256:b58899f069c47216f6002a6850143dc6fae0d35eb8b0df9300bbe6327b9c2171 1.02kB / 1.02kB done
+#4 sha256:83b2b6703a620bf2e001ab57f7adc414d891787b3c59859b1b62909e48dd2242 581B / 581B done
+#4 sha256:17a39c0ba978cc27001e9c56a480f98106e1ab74bd56eb302f9fd4cf758ea43f 0B / 3.42MB 0.1s
+#4 sha256:17a39c0ba978cc27001e9c56a480f98106e1ab74bd56eb302f9fd4cf758ea43f 3.42MB / 3.42MB 0.2s done
+#4 extracting sha256:17a39c0ba978cc27001e9c56a480f98106e1ab74bd56eb302f9fd4cf758ea43f
+#4 extracting sha256:17a39c0ba978cc27001e9c56a480f98106e1ab74bd56eb302f9fd4cf758ea43f 0.1s done
+#4 DONE 0.3s
+
+#5 [2/4] RUN apk add --no-cache bash git openssh-client curl coreutils ca-certificates
+#5 0.390 fetch https://dl-cdn.alpinelinux.org/alpine/v3.19/main/x86_64/APKINDEX.tar.gz
+#5 0.655 fetch https://dl-cdn.alpinelinux.org/alpine/v3.19/community/x86_64/APKINDEX.tar.gz
+#5 0.812 (1/28) Installing ncurses-terminfo-base (6.4_p20231125-r0)
+#5 0.828 (2/28) Installing libncursesw (6.4_p20231125-r0)
+#5 0.846 (3/28) Installing readline (8.2.1-r2)
+#5 0.863 (4/28) Installing bash (5.2.21-r0)
+#5 0.886 Executing bash-5.2.21-r0.post-install
+#5 0.888 (5/28) Installing ca-certificates (20250911-r0)
+#5 0.912 (6/28) Installing coreutils-env (9.4-r2)
+#5 0.928 (7/28) Installing coreutils-fmt (9.4-r2)
+#5 0.943 (8/28) Installing coreutils-sha512sum (9.4-r2)
+#5 0.959 (9/28) Installing libacl (2.3.1-r4)
+#5 0.974 (10/28) Installing libattr (2.5.1-r5)
+#5 0.989 (11/28) Installing skalibs (2.14.0.1-r0)
+#5 1.006 (12/28) Installing utmps-libs (0.1.2.2-r0)
+#5 1.020 (13/28) Installing coreutils (9.4-r2)
+#5 1.046 (14/28) Installing brotli-libs (1.1.0-r1)
+#5 1.065 (15/28) Installing c-ares (1.27.0-r0)
+#5 1.080 (16/28) Installing libunistring (1.1-r2)
+#5 1.102 (17/28) Installing libidn2 (2.3.4-r4)
+#5 1.119 (18/28) Installing nghttp2-libs (1.58.0-r0)
+#5 1.134 (19/28) Installing libpsl (0.21.5-r0)
+#5 1.150 (20/28) Installing libcurl (8.14.1-r2)
+#5 1.168 (21/28) Installing curl (8.14.1-r2)
+#5 1.187 (22/28) Installing libexpat (2.7.3-r0)
+#5 1.202 (23/28) Installing pcre2 (10.42-r2)
+#5 1.221 (24/28) Installing git (2.43.7-r0)
+#5 1.275 (25/28) Installing openssh-keygen (9.6_p1-r2)
+#5 1.293 (26/28) Installing libedit (20230828.3.1-r3)
+#5 1.309 (27/28) Installing openssh-client-common (9.6_p1-r2)
+#5 1.335 (28/28) Installing openssh-client-default (9.6_p1-r2)
+#5 1.355 Executing busybox-1.36.1-r20.trigger
+#5 1.359 Executing ca-certificates-20250911-r0.trigger
+#5 1.381 OK: 27 MiB in 43 packages
+#5 DONE 1.4s
+
+#6 [3/4] RUN adduser -D -h /home/sandbox sandbox
+#6 DONE 0.2s
+
+#7 [4/4] WORKDIR /workspace
+#7 DONE 0.0s
+
+#8 exporting to image
+#8 exporting layers
+#8 exporting layers 0.3s done
+#8 writing image sha256:91cba59cf7c5c340f350d5db94d6505551639e994f72fce91b7a7c45919afd67 done
+#8 naming to docker.io/library/opencode-sandbox:local done
+#8 DONE 0.3s
+BUILD_EXIT=0

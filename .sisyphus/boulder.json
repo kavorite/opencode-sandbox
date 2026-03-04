@@ -1,0 +1,10 @@
+{
+  "active_plan": "/home/staly/opencode-sandbox/.sisyphus/plans/docker-sandbox.md",
+  "started_at": "2026-03-03T09:07:05.721Z",
+  "session_ids": [
+    "ses_34e1496adffeSCxNECBLNhpTgr"
+  ],
+  "plan_name": "docker-sandbox",
+  "worktree_path": "/home/staly/opencode-sandbox",
+  "agent": "atlas"
+}
