@@ -287,11 +287,13 @@ describe('init — git worktree bind mounts', () => {
       makeSandboxConfig(),
     )
 
-    // Should only have the two host mounts, $HOME:ro and $project:rw — no extra binds
+    // Should only have the standard mounts + ephemeral rw overlays — no extra binds
     const nonStandardBinds = state.binds.filter(
       b => b !== '/usr/lib:/usr/lib:ro' &&
            b !== '/usr:/host/usr:ro' &&
            !b.startsWith('/home/user:') &&
+           !b.startsWith('/home/user/.cache:') &&
+           !b.startsWith('/home/user/.local:') &&
            !b.startsWith(normalProject + ':')
     )
     expect(nonStandardBinds).toHaveLength(0)

@@ -175,6 +175,13 @@ export async function init(
     `${project}:${project}`,
   ]
 
+  // Overlay rw mounts for cache/data directories that build tools routinely
+  // write to (e.g. uv, pip, cargo, npm). These override the parent $HOME:ro
+  // for specific subdirectories. Aligned with the EPHEMERAL allowlist in policy.ts.
+  for (const rel of ['.cache', '.local']) {
+    binds.push(`${home}/${rel}:${home}/${rel}`)
+  }
+
   // Forward SSH agent socket if available (needs rw access to the socket)
   if (process.env.SSH_AUTH_SOCK) {
     binds.push(`${process.env.SSH_AUTH_SOCK}:${process.env.SSH_AUTH_SOCK}`)
