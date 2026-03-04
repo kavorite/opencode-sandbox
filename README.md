@@ -30,7 +30,7 @@ Create `.opencode/sandbox.json` in your project root:
 ```json
 {
   "network": {
-    "observe": false,
+    "observe": true,
     "allow_methods": ["GET", "HEAD", "OPTIONS"],
     "allow_graphql_queries": true
   },
@@ -51,7 +51,7 @@ All fields are optional. The values above are the defaults.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `network.observe` | boolean | `false` | When true, routes HTTP/HTTPS through mitmproxy to capture method, host, and TLS SNI. HTTP methods not in `allow_methods` are flagged as violations. |
+| `network.observe` | boolean | `true` | Routes HTTP/HTTPS through mitmproxy to capture method, host, and TLS SNI. HTTP methods not in `allow_methods` are flagged as violations. Set to `false` to disable (not recommended). |
 | `network.allow_methods` | string[] | `["GET","HEAD","OPTIONS"]` | HTTP methods allowed in observe mode. Others are flagged as violations. |
 | `network.allow_graphql_queries` | boolean | `true` | Allow GraphQL POST requests even when POST is not in allow_methods (observe mode). |
 | `filesystem.inherit_permissions` | boolean | `true` | Respect opencode's existing permission settings for file edits. |
@@ -72,9 +72,9 @@ All fields are optional. The values above are the defaults.
 7. If violations are found, the container is rolled back to the pre-command state and the permission prompt is shown with violation details.
 8. The original command is replaced with a no-op — it already ran inside Docker.
 
-## Network Observation (observe mode)
+## Network Observation
 
-When `network.observe` is `true`, a mitmproxy sidecar container is started on the same Docker network. Sandbox containers route HTTP/HTTPS through it via `HTTP_PROXY`/`HTTPS_PROXY` environment variables.
+A mitmproxy sidecar container is started on the same Docker network. Sandbox containers route HTTP/HTTPS through it via `HTTP_PROXY`/`HTTPS_PROXY` environment variables. HTTP methods not in `allow_methods` (default: GET, HEAD, OPTIONS) are flagged as violations. GraphQL POST requests carrying read-only queries are allowed when `allow_graphql_queries` is true.
 
 ### What It Captures
 
