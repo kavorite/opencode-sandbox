@@ -1,5 +1,6 @@
 import os from 'os'
 import path from 'path'
+import { existsSync } from 'fs'
 import { rm } from 'fs/promises'
 import type { PluginInput, Hooks, Plugin } from '@opencode-ai/plugin'
 import * as config from './config.js'
@@ -19,8 +20,11 @@ import { getParser, stripSentinels } from './parse.js'
 const originalCommands = new Map<string, string>()
 
 const plugin: Plugin = async (input: PluginInput): Promise<Hooks> => {
-  // Nesting detection — if already inside a sandbox, return empty hooks
-  if (process.env.OC_SANDBOX === '1') return {}
+  // Nesting detection — if actually inside a Docker container, return empty hooks.
+  // This prevents infinite recursion if the plugin somehow loads inside the sandbox container.
+  // NOTE: We intentionally do NOT check process.env.OC_SANDBOX here — sub-agents on the
+  // host inherit that env var from the parent session but still need their own sandbox.
+  try { if (existsSync('/.dockerenv')) return {} } catch {}
 
   // Check Docker availability — error and block if unavailable
   const depsResult = await deps.check()
@@ -36,15 +40,29 @@ const plugin: Plugin = async (input: PluginInput): Promise<Hooks> => {
   const home = os.homedir()
   const docker = connect()
   const sessionId = `oc-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-  const networkName = `oc-sandbox-${sessionId}`
 
-  // Initialize warm container (creates Docker network internally)
-  const state: SessionState = await container.init(docker, project, home, sessionId, cfg)
+  // Sub-agent detection: if a parent sandbox is running, reuse its Docker network
+  // so the sub-agent's container shares the mitmproxy sidecar.
+  const parentNetworkName = process.env.OC_SANDBOX_NETWORK
+  const parentProxyLog = process.env.OC_SANDBOX_PROXY_LOG
 
-  // Start mitmproxy sidecar AFTER init (network must exist first)
+  // Initialize warm container (joins parent's network if sub-agent, or creates new one)
+  const state: SessionState = await container.init(docker, project, home, sessionId, cfg, parentNetworkName)
+  const networkName = state.networkMode
+
+  // Start mitmproxy sidecar AFTER init (network must exist first).
+  // Sub-agents skip proxy creation — they share the parent's proxy sidecar on the shared network.
   let proxyState: ProxyState | undefined
-  if (cfg.network.observe) {
+  if (cfg.network.observe && !parentNetworkName) {
+    // Primary session: start our own proxy sidecar
     proxyState = await proxy.startProxy(docker, networkName, sessionId, cfg.network.allow_methods, cfg.network.allow_graphql_queries)
+  } else if (cfg.network.observe && parentProxyLog) {
+    // Sub-agent: read proxy logs from parent's shared directory
+    proxyState = {
+      logDir: parentProxyLog,
+      networkName,
+      sessionId,
+    }
   }
 
   return {
@@ -66,8 +84,10 @@ const plugin: Plugin = async (input: PluginInput): Promise<Hooks> => {
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err)
         if (msg.includes('no such container') || msg.includes('No such container')) {
-          // Container was removed externally — reinitialize and retry once
-          const newState = await container.init(docker, project, home, sessionId, cfg)
+          // Container was removed externally — reinitialize and retry once.
+          // Pass the current network name so init() reuses the existing network
+          // instead of trying to create a duplicate (which would 409).
+          const newState = await container.init(docker, project, home, sessionId, cfg, networkName)
           Object.assign(state, newState)
           execResult = await container.exec(state, originalCommand, execCwd)
         } else {
@@ -184,7 +204,11 @@ const plugin: Plugin = async (input: PluginInput): Promise<Hooks> => {
     'shell.env': async (_info, output) => {
       output.env.OC_SANDBOX = '1'
       output.env.OC_SANDBOX_PROJECT = project
+      output.env.OC_SANDBOX_NETWORK = networkName
       output.env.OC_SANDBOX_WRITABLE = cfg.filesystem.allow_write.join(':')
+      if (proxyState?.logDir) {
+        output.env.OC_SANDBOX_PROXY_LOG = proxyState.logDir
+      }
       if (cfg.network.observe && cfg.network.allow_methods?.length) {
         output.env.OC_ALLOW_METHODS = cfg.network.allow_methods.join(',')
       }
