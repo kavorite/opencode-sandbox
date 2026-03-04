@@ -58,15 +58,17 @@ const plugin: Plugin = async (input: PluginInput): Promise<Hooks> => {
       originalCommand = stripSentinels(originalCommand, parser)
 
       // Run the command inside Docker NOW — before bash.ts spawns it on the host
-      // Recover from stale/missing container by reinitializing the session
+      // Recover from stale/missing/corrupted container by reinitializing the session
       let execResult: Awaited<ReturnType<typeof container.exec>>
       const execCwd = (args.workdir && path.isAbsolute(args.workdir)) ? args.workdir : cwd
       try {
         execResult = await container.exec(state, originalCommand, execCwd)
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err)
-        if (msg.includes('no such container') || msg.includes('No such container')) {
-          // Container was removed externally — reinitialize and retry once
+        if (msg.includes('no such container') || msg.includes('No such container') ||
+            msg.includes('is not running') || msg.includes('RWLayer') ||
+            (err instanceof Error && 'statusCode' in err && (err as any).statusCode >= 500)) {
+          // Container missing, stopped, or storage corrupted — reinitialize and retry once
           const newState = await container.init(docker, project, home, sessionId, cfg)
           Object.assign(state, newState)
           execResult = await container.exec(state, originalCommand, execCwd)
