@@ -1,4 +1,5 @@
 import type { FileOpen, FileWrite, FsMutation, NetConnect, NetSocket } from './diff.js'
+import type { GraphQLOperation } from './parse.js'
 
 export type DnsQuery = {
   qname: string
@@ -20,6 +21,7 @@ export type HttpRequest = {
   addr: string
   port: number
   forwarded?: boolean
+  graphql?: GraphQLOperation
 }
 
 export type TlsInfo = {
