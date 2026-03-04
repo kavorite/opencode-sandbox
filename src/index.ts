@@ -50,9 +50,14 @@ const plugin: Plugin = async (input: PluginInput): Promise<Hooks> => {
     'tool.execute.before': async (info, output) => {
       if (info.tool !== 'bash') return
       const args = output.args as { command: string }
-      const originalCommand = args.command
+      let originalCommand = args.command
 
-      // Run the command inside Docker NOW — before bash.ts spawns it on the host
+      // Defensive: strip sentinel prefix if agent accidentally added it
+      const SENTINEL_RE = /^(?:true\s+)?#\s*\[sandboxed\]\s*/
+      if (SENTINEL_RE.test(originalCommand)) {
+        originalCommand = originalCommand.replace(SENTINEL_RE, '')
+      }
+
       // Run the command inside Docker NOW — before bash.ts spawns it on the host
       // Recover from stale/missing container by reinitializing the session
       let execResult: Awaited<ReturnType<typeof container.exec>>
@@ -155,7 +160,10 @@ const plugin: Plugin = async (input: PluginInput): Promise<Hooks> => {
 
     'tool.execute.after': async (info, output) => {
       if (info.tool !== 'bash') return
-      // Relay Docker stdout/stderr back to agent — host ran 'true', Docker ran the real command
+      // Show the real command in the TUI, not the sentinel
+      const orig = originalCommands.get(info.callID)
+      if (orig) output.title = orig
+      // Relay Docker stdout/stderr back to agent — host ran a no-op, Docker ran the real command
       const result = store.get(info.callID)
       if (result) {
         if (result.violations.length > 0) {
@@ -179,8 +187,17 @@ const plugin: Plugin = async (input: PluginInput): Promise<Hooks> => {
         output.env.OC_ALLOW_METHODS = cfg.network.allow_methods.join(',')
       }
     },
+
+    'experimental.chat.system.transform': async (_input, output) => {
+      output.system.push([
+        'SANDBOX ENVIRONMENT ACTIVE: All bash commands are transparently intercepted by the opencode-sandbox plugin.',
+        'Commands execute inside a Docker container — the plugin handles interception, diffing, and output relay automatically.',
+        'DO NOT add any prefix like "# [sandboxed]" to your commands. Just write normal commands (e.g. `bun test`, `git status`).',
+        'The sandbox auto-approves clean commands and prompts the user only for genuine violations (git push, writes outside project dir).',
+        'Command output is relayed back to you transparently — you will see stdout/stderr as if the command ran on the host.',
+      ].join(' '))
+    },
   }
 }
-
 
 export default plugin
