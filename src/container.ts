@@ -142,8 +142,13 @@ export async function init(
   )
   const containerHome = containerHomeResult.stdout.trim() || '/home/sandbox'
 
-  // Capture baseline: changes present after container start (runtime injections like GPU drivers).
-  // This snapshot is subtracted from post-command diffs so only command-caused changes are reported.
+  // Warm up: trigger lazy runtime init (ldconfig etc.) before capturing baseline.
+  // Without this, the first real command's diff would include ldconfig artifacts.
+  await docker.execCommand(container, ['true'], {})
+
+  // Capture baseline: changes present after container start + warm-up (runtime injections
+  // like GPU drivers, ldconfig cache). Subtracted from post-command diffs so only
+  // command-caused changes are reported.
   const baselineChanges = await docker.getChanges(container)
   const baseline = new Set(baselineChanges.map(snapshotKey))
 
@@ -187,7 +192,7 @@ export async function exec(
     const msg = err instanceof Error ? err.message : String(err)
     if (msg.includes('paused')) {
       // Container stuck paused (e.g. after commit race) — unpause and retry
-      await state.container.unpause()
+      try { await state.container.unpause() } catch { /* already unpaused */ }
       return docker.execCommand(state.container, ['sh', '-c', cmd], { WorkingDir: cwd, trace: true })
     }
     throw err
@@ -206,6 +211,7 @@ export async function inspect(
 
 export async function approve(state: SessionState): Promise<void> {
   const newTag = `opencode-sandbox:${state.sessionId}-approved-${Date.now()}`
+  const oldTag = state.imageTag
   try {
     await docker.commitContainer(state.container, newTag)
     state.imageTag = newTag
@@ -213,6 +219,10 @@ export async function approve(state: SessionState): Promise<void> {
     // Docker pauses the container during commit — ensure we always unpause,
     // even if commit fails, to prevent 'container is paused' errors on next exec.
     try { await state.container.unpause() } catch { /* already running */ }
+  }
+  // Remove previous snapshot — only the latest matters for rollback
+  if (oldTag !== newTag) {
+    try { await docker.removeImage(state.dockerClient, oldTag) } catch { /* best effort */ }
   }
 }
 
