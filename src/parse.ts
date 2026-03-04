@@ -1,25 +1,27 @@
 import type { Parser as ParserType } from 'web-tree-sitter'
-import { fileURLToPath } from 'url'
+import path from 'path'
+import { createRequire } from 'module'
+
+const require = createRequire(import.meta.url)
 
 let _parser: ParserType | null = null
 
-function resolveWasm(asset: string): string {
-  if (asset.startsWith('file://')) return fileURLToPath(asset)
-  if (asset.startsWith('/') || /^[a-z]:/i.test(asset)) return asset
-  return fileURLToPath(new URL(asset, import.meta.url))
+/** Resolve the directory of an npm package by finding its package.json */
+function pkgDir(pkg: string): string {
+  return path.dirname(require.resolve(`${pkg}/package.json`))
 }
 
 export async function getParser(): Promise<ParserType> {
   if (_parser) return _parser
   const { Parser, Language } = await import('web-tree-sitter')
-  const { default: treeWasm } = await import('web-tree-sitter/tree-sitter.wasm' as string, {
-    with: { type: 'wasm' },
-  })
-  await Parser.init({ locateFile() { return resolveWasm(treeWasm) } })
-  const { default: bashWasm } = await import('tree-sitter-bash/tree-sitter-bash.wasm' as string, {
-    with: { type: 'wasm' },
-  })
-  const bashLang = await Language.load(resolveWasm(bashWasm))
+
+  // Locate WASM files from node_modules (works regardless of bundler/runtime)
+  const treeSitterWasm = path.join(pkgDir('web-tree-sitter'), 'web-tree-sitter.wasm')
+  await Parser.init({ locateFile() { return treeSitterWasm } })
+
+  const bashWasm = path.join(pkgDir('tree-sitter-bash'), 'tree-sitter-bash.wasm')
+  const bashLang = await Language.load(bashWasm)
+
   const p = new Parser()
   p.setLanguage(bashLang)
   _parser = p

@@ -6,6 +6,8 @@ build:
 
 # Install deps + compile binaries
 install:
+	# Clear Bun's transpilation cache for the plugin so stale compiled TS doesn't persist
+	@find "$${HOME}/.bun/install/cache" -path '*opencode-sandbox*' -delete 2>/dev/null || true
 	bun install
 
 # Run test suite
