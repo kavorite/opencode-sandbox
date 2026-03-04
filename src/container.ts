@@ -1,4 +1,5 @@
 import fs from 'fs'
+import { execSync } from 'child_process'
 import path from 'path'
 import Dockerode from 'dockerode'
 import * as docker from './docker.js'
@@ -86,7 +87,9 @@ export async function init(
   }
 
   // Git worktree support: if .git is a file (linked worktree), bind-mount the
-  // main repository's .git directory so git commands can find objects/refs/config.
+  // main repository's .git directory so git commands can update objects/refs/config.
+  // Must be read-write: git fetch writes to refs/remotes/ and packed-refs,
+  // git push -u writes tracking config — all stored in the common git dir.
   const dotGitPath = path.join(project, '.git')
   if (fs.existsSync(dotGitPath) && fs.statSync(dotGitPath).isFile()) {
     const content = fs.readFileSync(dotGitPath, 'utf8').trim()
@@ -97,7 +100,7 @@ export async function init(
       const gitdir = path.resolve(project, match[1]!)
       const commonGitDir = path.resolve(gitdir, '..', '..')
       if (fs.existsSync(commonGitDir) && !binds.some(b => b.split(':')[0] === commonGitDir)) {
-        binds.push(`${commonGitDir}:${commonGitDir}:ro`)
+        binds.push(`${commonGitDir}:${commonGitDir}`)
       }
     }
   }
@@ -171,12 +174,18 @@ export async function init(
     baseline,
   }
 
-  // Register cleanup on process exit
-  const onExit = () => { teardown(state).catch(() => {}) }
-  process.once('exit', onExit)
-  process.once('SIGTERM', onExit)
-  process.once('SIGINT', onExit)
-  process.once('uncaughtException', onExit)
+  // Register cleanup on process exit.
+  // Use synchronous Docker CLI for 'exit' event (async ops don't complete on 'exit').
+  // SIGTERM/SIGINT use async teardown since handlers can await before the process exits.
+  const syncCleanup = () => {
+    try { execSync(`docker rm -f ${state.container.id}`, { stdio: 'ignore', timeout: 5000 }) } catch { /* best-effort */ }
+    try { execSync(`docker network rm ${networkName}`, { stdio: 'ignore', timeout: 5000 }) } catch { /* best-effort */ }
+  }
+  const asyncCleanup = () => { teardown(state).catch(() => {}) }
+  process.once('exit', syncCleanup)
+  process.once('SIGTERM', asyncCleanup)
+  process.once('SIGINT', asyncCleanup)
+  process.once('uncaughtException', asyncCleanup)
 
   return state
 }
