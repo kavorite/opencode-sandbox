@@ -46,8 +46,8 @@ afterAll(async () => {
 })
 
 describe('opencode-sandbox Docker integration', () => {
-  test('nesting detection: OC_SANDBOX=1 returns empty hooks', async () => {
-    process.env.OC_SANDBOX = '1'
+  test('nesting detection: OC_SANDBOX_CONTAINER returns empty hooks', async () => {
+    process.env.OC_SANDBOX_CONTAINER = '1'
     try {
       const hooks = await plugin({
         directory: TEST_PROJECT,
@@ -55,6 +55,23 @@ describe('opencode-sandbox Docker integration', () => {
         serverUrl: new URL('http://localhost:0'),
       })
       expect(Object.keys(hooks)).toHaveLength(0)
+    } finally {
+      delete process.env.OC_SANDBOX_CONTAINER
+    }
+  })
+
+  test('OC_SANDBOX=1 does NOT return empty hooks (sub-agents need sandbox)', async () => {
+    process.env.OC_SANDBOX = '1'
+    try {
+      // OC_SANDBOX=1 is inherited by sub-agents via shell.env — they should still get
+      // a full sandbox, not empty hooks. Only OC_SANDBOX_CONTAINER (set inside the Docker
+      // container's env at creation) should disable the plugin.
+      const hooks = await plugin({
+        directory: TEST_PROJECT,
+        worktree: TEST_PROJECT,
+        serverUrl: new URL('http://localhost:0'),
+      })
+      expect(Object.keys(hooks).length).toBeGreaterThan(0)
     } finally {
       delete process.env.OC_SANDBOX
     }

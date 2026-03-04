@@ -1,6 +1,5 @@
 import os from 'os'
 import path from 'path'
-import { existsSync } from 'fs'
 import { rm } from 'fs/promises'
 import type { PluginInput, Hooks, Plugin } from '@opencode-ai/plugin'
 import * as config from './config.js'
@@ -20,11 +19,12 @@ import { getParser, stripSentinels } from './parse.js'
 const originalCommands = new Map<string, string>()
 
 const plugin: Plugin = async (input: PluginInput): Promise<Hooks> => {
-  // Nesting detection — if actually inside a Docker container, return empty hooks.
-  // This prevents infinite recursion if the plugin somehow loads inside the sandbox container.
-  // NOTE: We intentionally do NOT check process.env.OC_SANDBOX here — sub-agents on the
-  // host inherit that env var from the parent session but still need their own sandbox.
-  try { if (existsSync('/.dockerenv')) return {} } catch {}
+  // Nesting detection — if running inside a sandbox container, return empty hooks.
+  // We use a container-specific env var (OC_SANDBOX_CONTAINER) set only in the Docker
+  // container's env at creation time. This avoids false positives from:
+  //   - /.dockerenv: breaks when the HOST runs in Docker (CI, dev containers, cloud)
+  //   - OC_SANDBOX: sub-agents on the host inherit this via shell.env but need their own sandbox
+  if (process.env.OC_SANDBOX_CONTAINER) return {}
 
   // Check Docker availability — error and block if unavailable
   const depsResult = await deps.check()

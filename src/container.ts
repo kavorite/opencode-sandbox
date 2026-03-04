@@ -79,6 +79,7 @@ export async function init(
     `HOME=${home}`,
     `PATH=${mergedPath}`,
     'OC_SANDBOX=1',
+    'OC_SANDBOX_CONTAINER=1',
     `OC_SANDBOX_PROJECT=${project}`,
   ]
   // Forward host env vars that tools/runtimes depend on
