@@ -1,0 +1,27 @@
+=== Specified test files ===
+bun test v1.3.10 (30e609e0)
+
+ 38 pass
+ 0 fail
+ 116 expect() calls
+Ran 38 tests across 6 files. [158.00ms]
+
+=== Full suite (DOCKER_HOST=tcp://localhost:99999) ===
+bun test v1.3.10 (30e609e0)
+
+ 83 pass
+ 0 fail
+ 174 expect() calls
+Ran 83 tests across 7 files. [140.00ms]
+
+=== Remaining test files ===
+config.test.ts
+container.test.ts
+diff.test.ts
+docker.test.ts
+image.test.ts
+protocol.test.ts
+proxy.test.ts
+
+=== Deleted files ===
+wrapper.test.ts, epilogue.test.ts, overlay.test.ts, observe.test.ts, degradation.test.ts, timeout-sweep.ts, transparent-wrapper.test.ts, e2e-permission.test.ts, integration.test.ts, worktree-e2e.test.ts, integration-docker.test.ts

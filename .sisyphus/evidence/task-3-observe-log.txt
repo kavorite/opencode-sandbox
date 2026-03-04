@@ -1,0 +1,30 @@
+=== observe.c --log flag check ===
+8: * Usage: oc-observe [--log file] [--proxy ca.pem ca.key] <command> [args...]
+113:static FILE *logfd;
+200:    fprintf(logfd, "{\"type\":\"connect\",\"addr\":\"%s\",\"port\":%d,\"data\":\"%s\"}\n",
+202:    fflush(logfd);
+299:            fprintf(logfd, "{\"type\":\"dns_connect\",\"addr\":\"%s\",\"port\":53}\n", ip);
+300:        fflush(logfd);
+341:        fprintf(logfd, "{\"type\":\"ssh\",\"addr\":\"%s\",\"port\":%d,\"cmd\":\"%s\",\"repo\":\"%s\"}\n",
+343:        fflush(logfd);
+403:        fprintf(logfd, "{\"type\":\"connect\",\"addr\":\"%s\",\"port\":%d,\"data\":\"\"}\n",
+405:        fflush(logfd);
+497:        fprintf(logfd, "{\"type\":\"dns\",\"addr\":\"%s\",\"port\":53,\"data\":\"%s\"}\n", ip, enc);
+498:        fflush(logfd);
+509:    fprintf(logfd, "{\"type\":\"dns\",\"addr\":\"%s\",\"port\":53,\"data\":\"%s\"}\n",
+511:    fflush(logfd);
+521:    logfd = stdout;
+523:    /* Parse --log <file> */
+524:    if (argc > 2 && strcmp(argv[cmd_start], "--log") == 0) {
+525:        logfd = fopen(argv[cmd_start + 1], "a");
+526:        if (!logfd) {
+527:            fprintf(stderr, "oc-observe: cannot open log file '%s': %s\n",
+
+=== Compilation ===
+COMPILED OK
+
+=== Binary test ===
+exit: 0
+
+=== Log file ===
+-rw-r--r-- 1 staly staly 0 Mar  2 19:32 /tmp/oc-observe-qa.log

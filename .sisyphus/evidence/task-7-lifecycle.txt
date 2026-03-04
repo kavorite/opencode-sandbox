@@ -1,0 +1,42 @@
+Task 7: Container Lifecycle Manager — Integration Test Evidence
+================================================================
+
+Date: 2026-03-03
+File: src/container.ts
+
+Exports verified:
+  ✓ init — creates network + container, starts, commits base image, returns SessionState
+  ✓ exec — runs command via docker exec, returns ExecResult
+  ✓ inspect — calls getChanges() and maps via diff.ts mapChanges
+  ✓ approve — commits container state to new image tag
+  ✓ reject — stops+removes container, recreates from last committed image
+  ✓ teardown — removes container, network, and all committed images for session
+
+Process exit handlers: registered for SIGTERM, SIGINT, uncaughtException
+
+LSP diagnostics: clean (0 errors, 0 warnings)
+
+Integration Test Command:
+  bun -e (lifecycle test: init → exec → inspect → teardown)
+
+Test Output:
+  stdout: done
+  stderr: (empty)
+  exitCode: 0
+  rawChanges: [
+    {"Path":"/home","Kind":0},
+    {"Path":"/home/sandbox","Kind":0},
+    {"Path":"/home/sandbox/.cache","Kind":1},
+    {"Path":"/home/sandbox/.cache/testfile","Kind":1},
+    {"Path":"/tmp","Kind":0},
+    {"Path":"/tmp/oc-test-proj","Kind":1}
+  ]
+  mutations: 4 (home modifications detected, /tmp filtered as ephemeral)
+  teardown ok
+
+Assertions:
+  ✓ stdout contains 'done'
+  ✓ mutations > 0 (4 mutations: /home, /home/sandbox modified; .cache, .cache/testfile created)
+  ✓ 'teardown ok' printed (container, network, images cleaned up)
+
+All assertions PASS.

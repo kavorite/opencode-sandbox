@@ -1,0 +1,16 @@
+task-10: policy.ts Docker compatibility
+========================================
+Date: 2026-03-03
+
+Changes made:
+- Removed "/newroot" from SANDBOX_INFRA (bwrap pivot_root artifact, not used by Docker)
+  Before: const SANDBOX_INFRA = ["/newroot", "/etc/ssl", "/etc/pki"]
+  After:  const SANDBOX_INFRA = ["/etc/ssl", "/etc/pki"]
+
+Verified:
+- No ./strace import (imports: path, ./store, ./config only)
+- writable() and evaluate() unchanged
+- LSP diagnostics: clean (0 errors)
+- Bun verification test output: "1 filesystem" ✓
+  Test: evaluate() correctly flags /home/user/.ssh/evil as filesystem violation
+  when mutation comes from Docker diff (syscall: 'creat')

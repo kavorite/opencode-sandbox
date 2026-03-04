@@ -1,0 +1,4 @@
+bwrap --ro-bind / / --dev /dev --tmpfs /tmp --overlay-src /home/user --overlay /tmp/u/home/user /tmp/u-work/home/user /home/user --bind /opt/work /opt/work --tmpfs /dev/shm --tmpfs /run --unshare-net --unshare-pid --proc /proc --die-with-parent -- bash -c 'echo hi'
+__oc_exit=$?
+'/bin/true' --upper '/tmp/u' --project '/opt/work' --call-id t --allow /opt/work 2>/dev/null
+exit $__oc_exit

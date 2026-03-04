@@ -1,0 +1,60 @@
+Task 8: mitmproxy addon + proxy.ts sidecar manager
+====================================================
+Date: 2026-03-03
+
+## Files Created
+
+1. mitmproxy/addon.py — mitmproxy addon with request/response handlers
+2. src/proxy.ts — TypeScript sidecar manager
+
+## src/proxy.ts Exports
+
+- startProxy(docker, networkName, sessionId, allowMethods?) → ProxyState
+- readLogs(state) → ProxyFlow[]
+- mapFlows(flows) → { http: HttpRequest[], tls: TlsInfo[], dns: DnsQuery[] }
+- stopProxy(state) → void
+- getProxyCACert(state) → string
+
+## Integration QA Results
+
+### Setup
+- Created Docker network: oc-proxy-test
+- Started mitmproxy container with ALLOW_METHODS=GET
+- Container networked with alias 'mitmproxy'
+
+### Test 1: GET through proxy (should succeed)
+- Command: curl -s -o /dev/null -w "%{http_code}" http://httpbin.org/get
+- Result: HTTP 200 ✓
+
+### Test 2: POST through proxy (should be blocked)
+- Command: curl -s -o /dev/null -w "%{http_code}" -X POST http://httpbin.org/post
+- Result: HTTP 403 ✓ (Method not allowed by sandbox policy)
+
+### JSONL Flow Logs (flows.jsonl)
+{"method": "GET", "path": "/get", "host": "httpbin.org", "port": 80, "status": 200, "tls": false, "sni": null}
+{"method": "GET", "path": "/post", "host": "httpbin.org", "port": 80, "status": 405, "tls": false, "sni": null}
+{"method": "POST", "path": "/post", "host": "httpbin.org", "port": 80, "status": 403, "tls": false, "sni": null}
+{"method": "GET", "path": "/get", "host": "httpbin.org", "port": 80, "status": 200, "tls": false, "sni": null}
+
+### mapFlows verification (manual trace)
+Given flow: {"method":"POST","path":"/post","host":"httpbin.org","port":80,"status":403,"tls":false,"sni":null}
+→ http: [{method:"POST", path:"/post", host:"httpbin.org", addr:"httpbin.org", port:80, forwarded:false}]
+→ tls: [] (tls=false, no sni)
+→ dns: [] (explicit proxy, DNS not observable)
+
+Given flow: {"method":"GET","path":"/get","host":"httpbin.org","port":80,"status":200,"tls":false,"sni":null}
+→ http: [{method:"GET", path:"/get", host:"httpbin.org", addr:"httpbin.org", port:80, forwarded:false}]
+→ tls: [] (tls=false)
+→ dns: []
+
+## LSP Diagnostics
+- src/proxy.ts: 0 errors
+
+## Checklist
+[x] mitmproxy/addon.py exists with request and response handlers
+[x] src/proxy.ts exports: startProxy, readLogs, mapFlows, stopProxy, getProxyCACert
+[x] Proxy container starts on network with alias 'mitmproxy'
+[x] Method filtering works: blocked methods get 403
+[x] JSONL flow logs written and parseable by readLogs
+[x] mapFlows produces HttpRequest[] and TlsInfo[]
+[x] Evidence saved

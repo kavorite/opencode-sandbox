@@ -1,0 +1,38 @@
+Task 3: exec demux integration verification
+=============================================
+
+Date: 2026-03-03
+Container: alpine:3.19 (oc-test-exec)
+Command: sh -c 'echo OUT && echo ERR >&2'
+
+exec config:
+  Tty: false (CRITICAL for demuxed streams)
+  AttachStdout: true
+  AttachStderr: true
+  start opts: { Detach: false }
+
+Stream handling:
+  - container.modem.demuxStream(stream, stdoutPassthrough, stderrPassthrough)
+  - Primary: stream 'end' event
+  - Fallback: poll exec.inspect() every 100ms (guards against known dockerode bug)
+  - resolved guard prevents double-resolution
+
+Result:
+  {"out":"OUT","err":"ERR","code":0}
+
+Assertions:
+  ✅ stdout === "OUT" (demuxed correctly, no stderr bleed)
+  ✅ stderr === "ERR" (demuxed correctly, no stdout bleed)
+  ✅ exitCode === 0
+
+Unit tests: 10 pass, 0 fail, 34 expect() calls
+
+Key verifications:
+  ✅ Tty: false always in exec calls
+  ✅ Selective CapDrop (NET_RAW, SYS_ADMIN, SYS_PTRACE, SYS_MODULE, SYS_BOOT, MAC_ADMIN, AUDIT_WRITE) — NOT ALL
+  ✅ SecurityOpt: ['no-new-privileges']
+  ✅ cleanup calls stop + remove on matching containers, then removes networks
+
+Note: Changed exec.start({ hijack: true, stdin: false }) to exec.start({ Detach: false })
+because dockerode v4 + docker-modem throws HTTP 101 on hijack mode for non-interactive exec.
+Detach: false achieves the same demuxed stream behavior without the protocol upgrade error.

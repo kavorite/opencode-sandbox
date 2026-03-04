@@ -1,0 +1,36 @@
+bun test v1.3.10 (30e609e0)
+
+test/e2e-permission.test.ts:
+112 |         } as any,
+113 |         output,
+114 |       )
+115 | 
+116 |       // Curl tries to connect — network blocked — violation detected — stays "ask"
+117 |       expect(output.status).toBe("ask")
+                                  ^
+error: expect(received).toBe(expected)
+
+Expected: "ask"
+Received: "allow"
+
+      at <anonymous> (/home/staly/opencode-sandbox/test/e2e-permission.test.ts:117:29)
+(fail) E2E permission.ask hook > curl POST command — network violation, stays ask [6.00ms]
+244 |         } as any,
+245 |         output,
+246 |       )
+247 | 
+248 |       // Timed out — shouldn't auto-approve
+249 |       expect(output.status).toBe("ask")
+                                  ^
+error: expect(received).toBe(expected)
+
+Expected: "ask"
+Received: "allow"
+
+      at <anonymous> (/home/staly/opencode-sandbox/test/e2e-permission.test.ts:249:29)
+(fail) E2E permission.ask hook > sleep command — times out, stays ask [8.00ms]
+
+ 183 pass
+ 2 fail
+ 359 expect() calls
+Ran 185 tests across 10 files. [2.78s]

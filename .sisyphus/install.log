@@ -1,0 +1,13 @@
+bun install v1.3.10 (30e609e0)
+Resolving dependencies
+Resolved, downloaded and extracted [396]
+Saved lockfile
+
++ testcontainers@10.28.0 (v11.12.0 available)
++ @types/dockerode@3.3.47 (v4.0.1 available)
++ dockerode@4.0.9
+
+155 packages installed [2.48s]
+
+Blocked 1 postinstall. Run `bun pm untrusted` for details.
+EXIT=0

@@ -1,0 +1,47 @@
+TASK: Rewrite src/config.ts to remove bwrap-specific options and add Docker configuration
+
+CHANGES MADE:
+=============
+
+1. REMOVED CONSTANT:
+   - Line 5: export const TIMEOUT = 1000
+
+2. REMOVED SCHEMA FIELDS:
+   - timeout: z.number().default(TIMEOUT)
+   - home_readable: z.boolean().default(true)
+   - strace_bufsize: z.number().optional()
+
+3. ADDED SCHEMA FIELD:
+   - docker: z.object({ image: z.string().default("opencode-sandbox:local") }).default({ image: "opencode-sandbox:local" })
+
+4. UPDATED defaults CONSTANT:
+   FROM: { timeout: TIMEOUT, network: { mode: "observe" as const, allow_methods: ["GET", "HEAD", "OPTIONS"], allow_graphql_queries: true }, auto_allow_clean: true }
+   TO:   { network: { mode: "observe" as const, allow_methods: ["GET", "HEAD", "OPTIONS"], allow_graphql_queries: true }, auto_allow_clean: true, docker: { image: "opencode-sandbox:local" } }
+
+PRESERVED:
+==========
+- All imports (z, path, os)
+- network object with all fields (mode, allow, allow_methods, allow_graphql_queries)
+- filesystem object with all fields (inherit_permissions, allow_write, deny_read)
+- auto_allow_clean field
+- verbose field
+- deepMerge() function
+- read() function
+- load() function
+- export type SandboxConfig = z.infer<typeof schema>
+- export { schema }
+
+VERIFICATION:
+=============
+✓ Schema has NO timeout field
+✓ Schema has NO home_readable field
+✓ Schema has NO strace_bufsize field
+✓ Schema has docker object with image field (default: "opencode-sandbox:local")
+✓ network.mode, network.allow, network.allow_methods, network.allow_graphql_queries preserved
+✓ load() still reads from .opencode/sandbox.json and global config
+✓ Test output: {"mode":"block","hasTimeout":false,"hasDocker":true}
+  - mode: "block" (schema default for network.mode)
+  - hasTimeout: false (timeout field removed)
+  - hasDocker: true (docker field added)
+
+All requirements met. No commits made.

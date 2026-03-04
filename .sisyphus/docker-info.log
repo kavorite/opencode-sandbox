@@ -1,0 +1,69 @@
+Client:
+ Version:    28.5.1
+ Context:    default
+ Debug Mode: false
+ Plugins:
+  buildx: Docker Buildx (Docker Inc.)
+    Version:  0.29.1
+    Path:     /usr/lib/docker/cli-plugins/docker-buildx
+  compose: Docker Compose (Docker Inc.)
+    Version:  2.40.2
+    Path:     /usr/lib/docker/cli-plugins/docker-compose
+
+Server:
+ Containers: 34
+  Running: 16
+  Paused: 0
+  Stopped: 18
+ Images: 174
+ Server Version: 28.5.1
+ Storage Driver: overlay2
+  Backing Filesystem: extfs
+  Supports d_type: true
+  Using metacopy: true
+  Native Overlay Diff: false
+  userxattr: false
+ Logging Driver: json-file
+ Cgroup Driver: systemd
+ Cgroup Version: 2
+ Plugins:
+  Volume: local
+  Network: bridge host ipvlan macvlan null overlay
+  Log: awslogs fluentd gcplogs gelf journald json-file local splunk syslog
+ CDI spec directories:
+  /etc/cdi
+  /var/run/cdi
+ Discovered Devices:
+  cdi: nvidia.com/gpu=0
+  cdi: nvidia.com/gpu=GPU-4404557a-9ae8-992c-fa7f-283d57e4835b
+  cdi: nvidia.com/gpu=all
+ Swarm: inactive
+ Runtimes: io.containerd.runc.v2 runc
+ Default Runtime: runc
+ Init Binary: docker-init
+ containerd version: 75cb2b7193e4e490e9fbdc236c0e811ccaba3376.m
+ runc version: 
+ init version: de40ad0
+ Security Options:
+  seccomp
+   Profile: builtin
+  cgroupns
+ Kernel Version: 6.17.1-arch1-1
+ Operating System: EndeavourOS
+ OSType: linux
+ Architecture: x86_64
+ CPUs: 24
+ Total Memory: 30.45GiB
+ Name: y40
+ ID: 0125ba74-b3e5-4d10-a6d0-9c793f80f5c3
+ Docker Root Dir: /var/lib/docker
+ Debug Mode: false
+ Experimental: false
+ Insecure Registries:
+  ::1/128
+  127.0.0.0/8
+ Live Restore Enabled: false
+ Default Address Pools:
+   Base: 10.0.0.0/8, Size: 24
+
+EXIT=0

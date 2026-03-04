@@ -1,0 +1,2 @@
+$ DOCKER_HOST=tcp://localhost:99999 bun -e "import plugin from './src/index.ts'; try { await plugin({directory:'/tmp/oc-plugin-test', worktree:'/tmp/oc-plugin-test', serverUrl: new URL('http://localhost:0')}); console.log('NO ERROR'); } catch(e) { console.log('ERROR:', e.message.slice(0, 60)); }"
+ERROR: opencode-sandbox requires Docker: Docker daemon not availabl

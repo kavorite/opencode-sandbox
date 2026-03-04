@@ -15,9 +15,11 @@
   ],
   "dependencies": {
     "@opencode-ai/plugin": "^1.2.15",
-    "zod": "^3.24.0",
+    "@types/dockerode": "^3.3.32",
     "dockerode": "^4.0.2",
-    "@types/dockerode": "^3.3.32"
+    "tree-sitter-bash": "^0.25.1",
+    "web-tree-sitter": "^0.26.6",
+    "zod": "^3.24.0"
   },
   "devDependencies": {
     "@tsconfig/bun": "^1.0.9",

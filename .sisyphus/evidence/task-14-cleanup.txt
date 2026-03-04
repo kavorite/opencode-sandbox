@@ -1,0 +1,28 @@
+=== VERIFICATION RESULTS ===
+
+1. C files check:
+ls: cannot access 'src/*.c': No such file or directory
+ls: cannot access 'src/*.h': No such file or directory
+
+2. bwrap/strace references:
+
+3. Old TypeScript files check:
+ls: cannot access 'src/wrapper.ts': No such file or directory
+ls: cannot access 'src/epilogue.ts': No such file or directory
+ls: cannot access 'src/strace.ts': No such file or directory
+ls: cannot access 'src/decode.ts': No such file or directory
+ls: cannot access 'src/sandbox.ts': No such file or directory
+
+4. Test results:
+
+ 43 pass
+ 0 fail
+ 129 expect() calls
+Ran 43 tests across 7 files. [12.36s]
+
+5. README.md Docker documentation:
+9
+   Lines mentioning Docker:
+An opencode plugin that transparently intercepts bash commands, runs them inside a Docker container, and uses observed behavior to auto-allow clean commands or show a violation prompt for suspicious ones.
+- Docker (Docker Engine or Docker Desktop)
+- Docker daemon must be running
