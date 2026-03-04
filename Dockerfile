@@ -1,13 +1,11 @@
-FROM debian:bookworm-slim
-RUN apt-get update && apt-get install -y --no-install-recommends \
-      bash git openssh-client curl ca-certificates strace libcap2-bin coreutils \
-      gnupg lsb-release \
-    && install -m 0755 -d /etc/apt/keyrings \
-    && curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg \
-    && chmod a+r /etc/apt/keyrings/docker.gpg \
-    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian bookworm stable" > /etc/apt/sources.list.d/docker.list \
-    && apt-get update && apt-get install -y --no-install-recommends docker-ce-cli \
-    && rm -rf /var/lib/apt/lists/*
+FROM archlinux:base
+# Only install what cannot come from the host /usr bind-mount:
+# strace (needs a file capability set on the binary) and libcap (provides setcap).
+# Everything else — git, curl, gh, rg, docker CLI, ripgrep, etc. — is mounted
+# read-only from the host at /host/usr so the container always has the same tools
+# and glibc version as the host without ad-hoc installs.
+RUN pacman -Sy --noconfirm --needed strace libcap \
+    && pacman -Scc --noconfirm
 # Give strace the ptrace file capability so unprivileged users can use it.
 # no-new-privileges is NOT set on the container so this file cap takes effect on exec.
 RUN setcap cap_sys_ptrace+eip /usr/bin/strace
