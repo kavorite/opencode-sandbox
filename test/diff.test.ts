@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test"
-import { mapChanges } from "../src/diff"
+import { mapChanges, snapshotKey } from "../src/diff"
 import type { ContainerChange } from "../src/diff"
 
 const PROJECT = "/home/user/project"
@@ -122,5 +122,46 @@ describe("mapChanges", () => {
       path: "/home/user/.config/old",
       result: 0,
     })
+  })
+
+  test("baseline diffing: changes in baseline are excluded", () => {
+    // Simulate GPU runtime injection in baseline
+    const baselineChanges: ContainerChange[] = [
+      { Kind: 1, Path: "/lib/firmware/nvidia" },
+      { Kind: 1, Path: "/usr/lib64/libnvidia-ml.so.1" },
+      { Kind: 0, Path: "/etc/ld.so.cache" },
+      { Kind: 1, Path: "/var/cache/ldconfig/aux-cache" },
+    ]
+    const baseline = new Set(baselineChanges.map(snapshotKey))
+
+    // After command: baseline artifacts + one real user write
+    const afterCommand: ContainerChange[] = [
+      ...baselineChanges,
+      { Kind: 1, Path: "/home/user/.cache/new-file" },
+    ]
+
+    const result = mapChanges(afterCommand, PROJECT, HOME, [], undefined, baseline)
+    // Only the new file should be reported, not the baseline artifacts
+    expect(result.mutations).toHaveLength(1)
+    expect(result.mutations[0]?.path).toBe("/home/user/.cache/new-file")
+  })
+
+  test("baseline diffing: same path with different Kind is NOT excluded", () => {
+    // File was added in baseline (Kind=1), now modified (Kind=0)
+    const baseline = new Set(["1:/home/user/.cache/somefile"])
+    const changes: ContainerChange[] = [
+      { Kind: 0, Path: "/home/user/.cache/somefile" },
+    ]
+    const result = mapChanges(changes, PROJECT, HOME, [], undefined, baseline)
+    expect(result.mutations).toHaveLength(1)
+    expect(result.mutations[0]?.syscall).toBe("rename")
+  })
+
+  test("baseline diffing: empty baseline behaves like no baseline", () => {
+    const changes: ContainerChange[] = [
+      { Kind: 1, Path: "/home/user/.cache/bar" },
+    ]
+    const result = mapChanges(changes, PROJECT, HOME, [], undefined, new Set())
+    expect(result.mutations).toHaveLength(1)
   })
 })

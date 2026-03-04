@@ -3,7 +3,7 @@ import path from 'path'
 import Dockerode from 'dockerode'
 import * as docker from './docker.js'
 import { ensureImage } from './image.js'
-import { mapChanges } from './diff.js'
+import { mapChanges, snapshotKey } from './diff.js'
 import type { SandboxConfig } from './config.js'
 import type { ExecResult } from './docker.js'
 import type { DiffResult } from './diff.js'
@@ -23,6 +23,10 @@ export type SessionState = {
   dockerClient: Dockerode
   binds: string[]
   env: string[]
+  gpu: boolean
+  /** Baseline container.changes() snapshot — changes present before any command runs.
+   *  Used to compute deltas so runtime-injected artifacts (GPU drivers etc.) are excluded. */
+  baseline: Set<string>
 }
 
 export async function init(
@@ -40,50 +44,94 @@ export async function init(
   // Ensure image exists
   const imageName = await ensureImage(dockerClient)
 
-  // Build env vars
+  // Build env vars — forward host environment for transparent execution
+  // Merge host PATH with container-essential paths: modern distros merge /bin → /usr/bin
+  // (symlink) so host PATH may omit /bin, but Alpine has /bin as a real separate directory.
+  const CONTAINER_PATHS = ['/usr/local/sbin', '/usr/local/bin', '/usr/sbin', '/usr/bin', '/sbin', '/bin']
+  const hostPathParts = (process.env.PATH ?? '').split(':').filter(Boolean)
+  const mergedPath = [...hostPathParts, ...CONTAINER_PATHS.filter(p => !hostPathParts.includes(p))].join(':')
   const env = [
     `HOME=${home}`,
+    `PATH=${mergedPath}`,
     'OC_SANDBOX=1',
     `OC_SANDBOX_PROJECT=${project}`,
   ]
+  // Forward host env vars that tools/runtimes depend on
+  const FORWARD_ENV = [
+    'SSH_AUTH_SOCK', 'GIT_SSH_COMMAND',
+    'LANG', 'LC_ALL', 'TERM',
+    'GOPATH', 'GOROOT', 'CARGO_HOME', 'RUSTUP_HOME',
+    'NVM_DIR', 'PYENV_ROOT', 'VIRTUAL_ENV', 'CONDA_DEFAULT_ENV',
+    'XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_CACHE_HOME',
+    'NODE_OPTIONS', 'EDITOR', 'VISUAL',
+  ] as const
+  for (const key of FORWARD_ENV) {
+    if (process.env[key]) env.push(`${key}=${process.env[key]}`)
+  }
   if (config.network.observe && config.network.allow_methods?.length) {
     env.push('HTTP_PROXY=http://mitmproxy:8080')
     env.push('HTTPS_PROXY=http://mitmproxy:8080')
   }
 
-  // Build bind mounts (project dir + SSH auth)
-  const binds = [`${project}:${project}`]
+  // Bind mounts: $HOME read-only (gives access to ~/.local/bin, ~/.cargo, ~/.nvm, etc.)
+  // + project dir read-write (Docker overlapping mount: more-specific path wins)
+  const binds = [
+    `${home}:${home}:ro`,
+    `${project}:${project}`,
+  ]
 
-  // Bind-mount ~/.ssh read-only so git can use keys and known_hosts
-  const sshDir = path.join(home, '.ssh')
-  if (fs.existsSync(sshDir)) {
-    binds.push(`${sshDir}:${sshDir}:ro`)
-  }
-
-  // Forward SSH agent socket if available
+  // Forward SSH agent socket if available (needs rw access to the socket)
   if (process.env.SSH_AUTH_SOCK) {
     binds.push(`${process.env.SSH_AUTH_SOCK}:${process.env.SSH_AUTH_SOCK}`)
-    env.push(`SSH_AUTH_SOCK=${process.env.SSH_AUTH_SOCK}`)
   }
 
-  // Forward GIT_SSH_COMMAND if set on host (e.g. custom key selection)
-  if (process.env.GIT_SSH_COMMAND) {
-    env.push(`GIT_SSH_COMMAND=${process.env.GIT_SSH_COMMAND}`)
+  // Git worktree support: if .git is a file (linked worktree), bind-mount the
+  // main repository's .git directory so git commands can find objects/refs/config.
+  const dotGitPath = path.join(project, '.git')
+  if (fs.existsSync(dotGitPath) && fs.statSync(dotGitPath).isFile()) {
+    const content = fs.readFileSync(dotGitPath, 'utf8').trim()
+    const match = content.match(/^gitdir:\s*(.+)$/m)
+    if (match) {
+      // gitdir is like /main-repo/.git/worktrees/<name>
+      // The common git dir (objects, refs, config) is two levels up
+      const gitdir = path.resolve(project, match[1]!)
+      const commonGitDir = path.resolve(gitdir, '..', '..')
+      if (fs.existsSync(commonGitDir) && !binds.some(b => b.split(':')[0] === commonGitDir)) {
+        binds.push(`${commonGitDir}:${commonGitDir}:ro`)
+      }
+    }
   }
 
-  // Create container
-  const container = await docker.createContainer(dockerClient, {
+  // Create container (with GPU passthrough if enabled)
+  const containerOpts = {
     sessionId,
     image: config.docker.image ?? imageName,
-    cmd: ['sleep', 'infinity'],
+    cmd: ['sleep', 'infinity'] as string[],
     binds,
     networkMode: networkName,
     env,
     workingDir: project,
     name: `oc-sandbox-${sessionId}`,
-  })
+    gpu: config.docker.gpu ?? true,
+  }
+  let container = await docker.createContainer(dockerClient, containerOpts)
 
-  await container.start()
+  // Start with GPU fallback — if GPU requested but runtime missing, retry without
+  try {
+    await container.start()
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    if (containerOpts.gpu && (msg.includes('could not select device driver') || msg.includes('nvidia') || msg.includes('GPU') || msg.includes('OCI runtime'))) {
+      // GPU runtime not available — remove failed container, retry without GPU
+      try { await container.remove({ force: true }) } catch { /* ignore */ }
+      containerOpts.gpu = false
+      containerOpts.name = `oc-sandbox-${sessionId}-nogpu`
+      container = await docker.createContainer(dockerClient, containerOpts)
+      await container.start()
+    } else {
+      throw err
+    }
+  }
 
   // Detect the container image user's actual home directory (not the env-overridden $HOME)
   // We use getent passwd to read from /etc/passwd, bypassing the HOME env var we set.
@@ -93,6 +141,11 @@ export async function init(
     {},
   )
   const containerHome = containerHomeResult.stdout.trim() || '/home/sandbox'
+
+  // Capture baseline: changes present after container start (runtime injections like GPU drivers).
+  // This snapshot is subtracted from post-command diffs so only command-caused changes are reported.
+  const baselineChanges = await docker.getChanges(container)
+  const baseline = new Set(baselineChanges.map(snapshotKey))
 
   // Commit base state
   const baseTag = `opencode-sandbox:${sessionId}-base`
@@ -109,6 +162,8 @@ export async function init(
     dockerClient,
     binds,
     env,
+    gpu: containerOpts.gpu,
+    baseline,
   }
 
   // Register cleanup on process exit
@@ -126,20 +181,39 @@ export async function exec(
   cmd: string,
   cwd: string,
 ): Promise<ExecResult> {
-  return docker.execCommand(state.container, ['sh', '-c', cmd], { WorkingDir: cwd })
+  try {
+    return await docker.execCommand(state.container, ['sh', '-c', cmd], { WorkingDir: cwd, trace: true })
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    if (msg.includes('paused')) {
+      // Container stuck paused (e.g. after commit race) — unpause and retry
+      await state.container.unpause()
+      return docker.execCommand(state.container, ['sh', '-c', cmd], { WorkingDir: cwd, trace: true })
+    }
+    throw err
+  }
 }
 
 export async function inspect(
   state: SessionState,
 ): Promise<DiffResult> {
   const changes = await docker.getChanges(state.container)
-  return mapChanges(changes, state.project, state.home, state.binds, state.containerHome)
+  const result = mapChanges(changes, state.project, state.home, state.binds, state.containerHome, state.baseline)
+  // Update baseline so the next command's diff is also a clean delta
+  for (const c of changes) state.baseline.add(snapshotKey(c))
+  return result
 }
 
 export async function approve(state: SessionState): Promise<void> {
   const newTag = `opencode-sandbox:${state.sessionId}-approved-${Date.now()}`
-  await docker.commitContainer(state.container, newTag)
-  state.imageTag = newTag
+  try {
+    await docker.commitContainer(state.container, newTag)
+    state.imageTag = newTag
+  } finally {
+    // Docker pauses the container during commit — ensure we always unpause,
+    // even if commit fails, to prevent 'container is paused' errors on next exec.
+    try { await state.container.unpause() } catch { /* already running */ }
+  }
 }
 
 export async function reject(state: SessionState): Promise<void> {
@@ -155,6 +229,7 @@ export async function reject(state: SessionState): Promise<void> {
     binds: state.binds,
     env: state.env,
     workingDir: state.project,
+    gpu: state.gpu,
     name: `oc-sandbox-${state.sessionId}-${Date.now()}`,
   })
   await newContainer.start()

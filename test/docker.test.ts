@@ -32,13 +32,81 @@ describe('createContainer', () => {
 
     expect(capDrop).toContain('NET_RAW')
     expect(capDrop).toContain('SYS_ADMIN')
-    expect(capDrop).toContain('SYS_PTRACE')
+    expect(capDrop).not.toContain('SYS_PTRACE')
+    const capAdd = hostConfig.CapAdd as string[]
+    expect(capAdd).toContain('SYS_PTRACE')
     expect(capDrop).toContain('SYS_MODULE')
     expect(capDrop).toContain('SYS_BOOT')
     expect(capDrop).toContain('MAC_ADMIN')
     expect(capDrop).toContain('AUDIT_WRITE')
     expect(capDrop).not.toContain('ALL')
-    expect(hostConfig.SecurityOpt).toContain('no-new-privileges')
+    expect(hostConfig.SecurityOpt).toContain('seccomp=unconfined')
+    expect(hostConfig.SecurityOpt).not.toContain('no-new-privileges')
+  })
+
+  test('includes DeviceRequests for GPU when gpu: true', async () => {
+    let capturedConfig: unknown
+    const mockDocker = {
+      createContainer: mock((config: unknown) => {
+        capturedConfig = config
+        return Promise.resolve({ id: 'mock-container' })
+      }),
+    } as unknown as Dockerode
+
+    await createContainer(mockDocker, {
+      sessionId: 'test-gpu',
+      image: 'alpine:3.19',
+      cmd: ['sleep', '1'],
+      gpu: true,
+    })
+
+    const cfg = capturedConfig as Record<string, unknown>
+    const hostConfig = cfg.HostConfig as Record<string, unknown>
+    const deviceRequests = hostConfig.DeviceRequests as Array<Record<string, unknown>>
+    expect(deviceRequests).toHaveLength(1)
+    expect(deviceRequests[0].Count).toBe(-1)
+    expect(deviceRequests[0].Capabilities).toEqual([['gpu']])
+  })
+
+  test('omits DeviceRequests when gpu: false', async () => {
+    let capturedConfig: unknown
+    const mockDocker = {
+      createContainer: mock((config: unknown) => {
+        capturedConfig = config
+        return Promise.resolve({ id: 'mock-container' })
+      }),
+    } as unknown as Dockerode
+
+    await createContainer(mockDocker, {
+      sessionId: 'test-no-gpu',
+      image: 'alpine:3.19',
+      cmd: ['sleep', '1'],
+      gpu: false,
+    })
+
+    const cfg = capturedConfig as Record<string, unknown>
+    const hostConfig = cfg.HostConfig as Record<string, unknown>
+    expect(hostConfig.DeviceRequests).toBeUndefined()
+  })
+
+  test('omits DeviceRequests when gpu not specified', async () => {
+    let capturedConfig: unknown
+    const mockDocker = {
+      createContainer: mock((config: unknown) => {
+        capturedConfig = config
+        return Promise.resolve({ id: 'mock-container' })
+      }),
+    } as unknown as Dockerode
+
+    await createContainer(mockDocker, {
+      sessionId: 'test-default',
+      image: 'alpine:3.19',
+      cmd: ['sleep', '1'],
+    })
+
+    const cfg = capturedConfig as Record<string, unknown>
+    const hostConfig = cfg.HostConfig as Record<string, unknown>
+    expect(hostConfig.DeviceRequests).toBeUndefined()
   })
 
   test('sets sandbox labels with sessionId', async () => {

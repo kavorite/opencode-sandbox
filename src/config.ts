@@ -23,14 +23,15 @@ const schema = z.object({
   docker: z
     .object({
       image: z.string().default("opencode-sandbox:local"),
+      gpu: z.boolean().default(true),
     })
-    .default({ image: "opencode-sandbox:local" }),
+    .default({ image: "opencode-sandbox:local", gpu: true }),
   verbose: z.boolean().default(false),
 })
 
 export type SandboxConfig = z.infer<typeof schema>
 
-export const defaults = { network: { observe: false, allow_methods: ["GET", "HEAD", "OPTIONS"], allow_graphql_queries: true }, auto_allow_clean: true, docker: { image: "opencode-sandbox:local" } }
+export const defaults = { network: { observe: false, allow_methods: ["GET", "HEAD", "OPTIONS"], allow_graphql_queries: true }, auto_allow_clean: true, docker: { image: "opencode-sandbox:local", gpu: true } }
 
 async function read(file: string): Promise<Record<string, unknown> | undefined> {
   if (!await Bun.file(file).exists()) return undefined

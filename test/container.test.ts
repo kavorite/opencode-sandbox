@@ -14,6 +14,7 @@ function mockContainer(overrides?: Partial<Record<string, unknown>>) {
     remove: mock(() => Promise.resolve()),
     commit: mock(() => Promise.resolve({ Id: 'sha256:committed' })),
     changes: mock(() => Promise.resolve([])),
+    unpause: mock(() => Promise.resolve()),
     ...overrides,
   } as unknown as Dockerode.Container
 }
@@ -33,7 +34,12 @@ function makeState(overrides?: Partial<SessionState>): SessionState {
     sessionId: 'test-session',
     project: '/home/user/project',
     home: '/home/user',
+    containerHome: '/home/sandbox',
     dockerClient: {} as Dockerode,
+    binds: [],
+    env: [],
+    gpu: false,
+    baseline: new Set(),
     ...overrides,
   }
 }
@@ -120,8 +126,9 @@ describe('inspect', () => {
 })
 
 describe('approve', () => {
-  test('commits container with new tag and updates state.imageTag', async () => {
-    const state = makeState()
+  test('commits container with new tag, updates imageTag, and unpauses', async () => {
+    const container = mockContainer()
+    const state = makeState({ container })
     const oldTag = state.imageTag
 
     await approve(state)
@@ -130,6 +137,8 @@ describe('approve', () => {
     // imageTag should be updated to new approved tag
     expect(state.imageTag).not.toBe(oldTag)
     expect(state.imageTag).toContain('approved')
+    // Container should be explicitly unpaused after commit
+    expect(container.unpause).toHaveBeenCalled()
   })
 })
 

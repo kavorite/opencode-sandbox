@@ -60,12 +60,16 @@ const isUnder = (path: string, prefix: string): boolean =>
 const isEphemeral = (path: string): boolean =>
   EPHEMERAL_PREFIXES.some((prefix) => isUnder(path, prefix))
 
+/** Build a Set of "Kind:Path" keys from a changes snapshot for fast baseline lookup */
+export const snapshotKey = (c: ContainerChange): string => `${c.Kind}:${c.Path}`
+
 export const mapChanges = (
   changes: ContainerChange[],
   project: string,
   _home: string,
   bindMounts: string[] = [],
   containerHome: string | undefined = undefined,
+  baseline: Set<string> = new Set(),
 ): DiffResult => {
   const normalizedProject = project.replace(/\/$/, "")
   // Normalize bind mounts: strip read-only suffix (':ro') and extract host paths
@@ -87,6 +91,10 @@ export const mapChanges = (
     // Exclude metadata-only (Kind=0) changes on the container home dir itself —
     // Docker records the parent dir as 'modified' when children are written.
     if (containerHome && kind === 0 && path === containerHome) continue
+    // Baseline diffing: skip anything already present before the command ran.
+    // This filters out runtime-injected artifacts (GPU drivers, ldconfig, etc.)
+    // without needing heuristics about paths or root escalation.
+    if (baseline.has(snapshotKey(change))) continue
 
     if (kind === 1) {
       const syscall = path.endsWith("/") ? "mkdir" : "creat"

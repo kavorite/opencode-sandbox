@@ -10,17 +10,20 @@ export type ContainerCreateOpts = {
   env?: string[]
   workingDir?: string
   name?: string
+  gpu?: boolean
 }
 
 export type ExecOpts = {
   WorkingDir?: string
   Env?: string[]
+  trace?: boolean // if true, wrap command with strace and return log
 }
 
 export type ExecResult = {
   stdout: string
   stderr: string
   exitCode: number
+  straceLog?: string // populated when tracing is enabled
 }
 
 export type ContainerChange = {
@@ -46,8 +49,10 @@ export async function createContainer(docker: Dockerode, opts: ContainerCreateOp
     HostConfig: {
       Binds: opts.binds,
       NetworkMode: opts.networkMode,
-      CapDrop: ['NET_RAW', 'SYS_ADMIN', 'SYS_PTRACE', 'SYS_MODULE', 'SYS_BOOT', 'MAC_ADMIN', 'AUDIT_WRITE'],
-      SecurityOpt: ['no-new-privileges'],
+      CapDrop: ['NET_RAW', 'SYS_ADMIN', 'SYS_MODULE', 'SYS_BOOT', 'MAC_ADMIN', 'AUDIT_WRITE'],
+      CapAdd: ['SYS_PTRACE'], // needed for strace-based SSH/network observation
+      SecurityOpt: ['seccomp=unconfined'], // unconfined allows all ptrace ops strace needs
+      ...(opts.gpu ? { DeviceRequests: [{ Driver: '', Count: -1, DeviceIDs: [], Capabilities: [['gpu']], Options: {} }] } : {}),
     },
     ...(opts.name ? { name: opts.name } : {}),
   })
@@ -59,18 +64,24 @@ export async function execCommand(
   cmd: string[],
   opts?: ExecOpts,
 ): Promise<ExecResult> {
+  const straceLog = opts?.trace ? `/tmp/oc-strace-${Date.now()}.log` : undefined
+  const actualCmd = straceLog
+    ? ['strace', '-e', 'trace=execve,connect', '-f', '-q', '-s', '512', '-o', straceLog, ...cmd]
+    : cmd
+
   const exec = await container.exec({
-    Cmd: cmd,
+    Cmd: actualCmd,
     AttachStdout: true,
     AttachStderr: true,
     Tty: false, // CRITICAL: false for demuxed streams
     ...(opts?.WorkingDir ? { WorkingDir: opts.WorkingDir } : {}),
     ...(opts?.Env ? { Env: opts.Env } : {}),
+    ...(opts?.Env ? { Env: opts.Env } : {}),
   })
 
   const stream = await exec.start({ Detach: false })
 
-  return new Promise((resolve, reject) => {
+  const result = await new Promise<ExecResult>((resolve, reject) => {
     const stdoutChunks: Buffer[] = []
     const stderrChunks: Buffer[] = []
 
@@ -120,6 +131,20 @@ export async function execCommand(
     stream.on('end', () => clearInterval(poll))
     stream.on('error', () => clearInterval(poll))
   })
+
+  // Read strace log back from container (second exec, fast cat)
+  if (straceLog) {
+    try {
+      const logResult = await execCommand(container, ['cat', straceLog])
+      result.straceLog = logResult.stdout
+      // Best-effort cleanup — don't block on it
+      execCommand(container, ['rm', '-f', straceLog]).catch(() => {})
+    } catch {
+      // strace log unreadable — carry on without it
+    }
+  }
+
+  return result
 }
 
 export async function getChanges(container: Dockerode.Container): Promise<ContainerChange[]> {
