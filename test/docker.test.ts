@@ -261,6 +261,8 @@ describe('cleanup', () => {
       getNetwork: mock(() => ({
         remove: netRemoveMock,
       })),
+      listImages: mock(() => Promise.resolve([])),
+      getImage: mock(() => ({ remove: mock(() => Promise.resolve()) })),
     } as unknown as Dockerode
 
     await cleanup(mockDocker, 'sess-cleanup')
@@ -293,6 +295,8 @@ describe('cleanup', () => {
       })),
       listNetworks: mock(() => Promise.resolve([])),
       getNetwork: mock(() => ({ remove: mock(() => Promise.resolve()) })),
+      listImages: mock(() => Promise.resolve([])),
+      getImage: mock(() => ({ remove: mock(() => Promise.resolve()) })),
     } as unknown as Dockerode
 
     // Should not throw even if stop fails

@@ -76,7 +76,6 @@ export async function execCommand(
     Tty: false, // CRITICAL: false for demuxed streams
     ...(opts?.WorkingDir ? { WorkingDir: opts.WorkingDir } : {}),
     ...(opts?.Env ? { Env: opts.Env } : {}),
-    ...(opts?.Env ? { Env: opts.Env } : {}),
   })
 
   const stream = await exec.start({ Detach: false })
@@ -158,6 +157,11 @@ export async function commitContainer(container: Dockerode.Container, tag: strin
   return (result as { Id: string }).Id
 }
 
+export async function removeImage(docker: Dockerode, tag: string): Promise<void> {
+  const image = docker.getImage(tag)
+  await image.remove({ force: false })
+}
+
 export async function createNetwork(docker: Dockerode, name: string, sessionId: string): Promise<Dockerode.Network> {
   const network = await docker.createNetwork({
     Name: name,
@@ -182,4 +186,15 @@ export async function cleanup(docker: Dockerode, sessionId: string): Promise<voi
   )
   const networks = await docker.listNetworks({ filters: { label: [label] } })
   await Promise.all(networks.map((n) => docker.getNetwork(n.Id).remove()))
+
+  // Remove all committed images for this session
+  const tagPrefix = `opencode-sandbox:${sessionId}-`
+  const images = await docker.listImages({ filters: { reference: ['opencode-sandbox'] } })
+  await Promise.all(
+    images.flatMap((img) =>
+      (img.RepoTags ?? []).filter((t: string) => t.startsWith(tagPrefix)).map(async (t: string) => {
+        try { await docker.getImage(t).remove({ force: false }) } catch { /* in use or already removed */ }
+      }),
+    ),
+  )
 }
