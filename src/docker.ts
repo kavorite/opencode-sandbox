@@ -41,6 +41,18 @@ export async function createContainer(docker: Dockerode, opts: ContainerCreateOp
   const dockerSocket = process.env.DOCKER_HOST?.replace('unix://', '') ?? '/var/run/docker.sock'
   const socketBinds: string[] = fs.existsSync(dockerSocket) ? [`${dockerSocket}:/var/run/docker.sock`] : []
   
+  // Get the docker socket's GID so we can add it to the container's supplemental groups.
+  // This lets the sandbox user access the socket without hardcoding a GID.
+  let socketGroupAdd: string[] = []
+  if (fs.existsSync(dockerSocket)) {
+    try {
+      const stat = fs.statSync(dockerSocket)
+      socketGroupAdd = [String(stat.gid)]
+    } catch {
+      // socket not stat-able — skip group add
+    }
+  }
+  
   // selective CapDrop — NOT ALL (breaks native addon installs)
   const container = await docker.createContainer({
     Image: opts.image,
@@ -53,6 +65,7 @@ export async function createContainer(docker: Dockerode, opts: ContainerCreateOp
     },
     HostConfig: {
       Binds: [...(opts.binds ?? []), ...socketBinds],
+      GroupAdd: socketGroupAdd,
       NetworkMode: opts.networkMode,
       CapDrop: ['NET_RAW', 'SYS_ADMIN', 'SYS_MODULE', 'SYS_BOOT', 'MAC_ADMIN', 'AUDIT_WRITE'],
       CapAdd: ['SYS_PTRACE'], // needed for strace-based SSH/network observation
