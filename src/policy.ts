@@ -69,7 +69,7 @@ export function evaluate(result: SandboxResult, config: SandboxConfig, project: 
     : [
         ...result.http
           .filter((h) => !config.network.allow_methods!.includes(h.method))
-          .filter((h) => !(config.network.allow_graphql_queries && h.method === "POST" && h.path.toLowerCase().includes("graphql")))
+          .filter((h) => !(config.network.allow_graphql_queries && h.graphql?.type === 'query'))
           .map(
             (h): Violation => ({
               type: "network",

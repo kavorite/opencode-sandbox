@@ -2,6 +2,7 @@ import Dockerode from 'dockerode'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import type { HttpRequest, TlsInfo, DnsQuery } from './store.js'
+import { parseGraphQLBody } from './parse.js'
 
 const PROJECT_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..')
 const ADDON_PATH = path.join(PROJECT_ROOT, 'mitmproxy', 'addon.py')
@@ -15,6 +16,7 @@ export type ProxyFlow = {
   status: number | null
   tls: boolean
   sni: string | null
+  body?: string
 }
 
 export type ProxyState = {
@@ -115,6 +117,7 @@ export function mapFlows(flows: ProxyFlow[]): { http: HttpRequest[]; tls: TlsInf
     addr: f.host,
     port: f.port,
     forwarded: false,
+    graphql: f.body ? parseGraphQLBody(f.body) : undefined,
   }))
 
   const tls: TlsInfo[] = flows
