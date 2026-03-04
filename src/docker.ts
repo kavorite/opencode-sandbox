@@ -1,4 +1,5 @@
 import Dockerode from 'dockerode'
+import fs from 'fs'
 import { PassThrough } from 'stream'
 
 export type ContainerCreateOpts = {
@@ -36,6 +37,10 @@ export function connect(): Dockerode {
 }
 
 export async function createContainer(docker: Dockerode, opts: ContainerCreateOpts): Promise<Dockerode.Container> {
+  // Mount Docker socket if available (allows container to use host Docker daemon)
+  const dockerSocket = process.env.DOCKER_HOST?.replace('unix://', '') ?? '/var/run/docker.sock'
+  const socketBinds: string[] = fs.existsSync(dockerSocket) ? [`${dockerSocket}:/var/run/docker.sock`] : []
+  
   // selective CapDrop — NOT ALL (breaks native addon installs)
   const container = await docker.createContainer({
     Image: opts.image,
@@ -47,7 +52,7 @@ export async function createContainer(docker: Dockerode, opts: ContainerCreateOp
       'opencode-sandbox.session': opts.sessionId,
     },
     HostConfig: {
-      Binds: opts.binds,
+      Binds: [...(opts.binds ?? []), ...socketBinds],
       NetworkMode: opts.networkMode,
       CapDrop: ['NET_RAW', 'SYS_ADMIN', 'SYS_MODULE', 'SYS_BOOT', 'MAC_ADMIN', 'AUDIT_WRITE'],
       CapAdd: ['SYS_PTRACE'], // needed for strace-based SSH/network observation

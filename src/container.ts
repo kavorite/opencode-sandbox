@@ -63,7 +63,7 @@ export async function init(
     'GOPATH', 'GOROOT', 'CARGO_HOME', 'RUSTUP_HOME',
     'NVM_DIR', 'PYENV_ROOT', 'VIRTUAL_ENV', 'CONDA_DEFAULT_ENV',
     'XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_CACHE_HOME',
-    'NODE_OPTIONS', 'EDITOR', 'VISUAL',
+    'NODE_OPTIONS', 'EDITOR', 'VISUAL', 'DOCKER_HOST',
   ] as const
   for (const key of FORWARD_ENV) {
     if (process.env[key]) env.push(`${key}=${process.env[key]}`)
