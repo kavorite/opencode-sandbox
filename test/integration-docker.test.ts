@@ -1,5 +1,7 @@
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test'
-import { mkdirSync, rmSync } from 'fs'
+import { mkdirSync, rmSync, writeFileSync } from 'fs'
+import { execSync } from 'child_process'
+import path from 'path'
 import plugin from '../src/index.ts'
 import { get as getResult } from '../src/store.ts'
 
@@ -220,4 +222,108 @@ describe('opencode-sandbox strace integration', () => {
     expect(uploadPack).toBeDefined()
     expect(uploadPack!.addr).toContain('github.com')
   }, 120000)
+})
+
+// ---------------------------------------------------------------------------
+// Git worktree integration tests
+// Verifies that git commands inside the sandbox can write refs to the shared
+// common git dir when running from a worktree.
+// ---------------------------------------------------------------------------
+
+describe('opencode-sandbox git worktree integration', () => {
+  // All dirs under $HOME so the bare repo is readable via the $HOME:ro mount
+  const HOME = process.env.HOME!
+  const WT_TEST_DIR = path.join(HOME, '.oc-worktree-test-' + Date.now())
+  const BARE_REPO = path.join(WT_TEST_DIR, 'bare.git')
+  const MAIN_CLONE = path.join(WT_TEST_DIR, 'main-clone')
+  const WORKTREE_DIR = path.join(WT_TEST_DIR, 'my-worktree')
+
+  beforeAll(() => {
+    mkdirSync(WT_TEST_DIR, { recursive: true })
+    // Create a bare repo
+    execSync('git init --bare ' + BARE_REPO, { stdio: 'pipe' })
+    // Clone it to get a real repo with an origin remote
+    execSync(`git clone ${BARE_REPO} ${MAIN_CLONE}`, { stdio: 'pipe' })
+    // Configure git user and create an initial commit so there's a HEAD
+    execSync('git config user.email "test@test.com" && git config user.name "Test"', { cwd: MAIN_CLONE, stdio: 'pipe' })
+    writeFileSync(path.join(MAIN_CLONE, 'README.md'), 'test')
+    execSync('git add . && git commit -m "init"', { cwd: MAIN_CLONE, stdio: 'pipe' })
+    execSync('git push origin main || git push origin master', { cwd: MAIN_CLONE, stdio: 'pipe' })
+    // Create a worktree
+    execSync(`git worktree add ${WORKTREE_DIR} -b test-branch`, { cwd: MAIN_CLONE, stdio: 'pipe' })
+  })
+
+  afterAll(() => {
+    // Clean up worktree first, then the rest
+    try { execSync(`git worktree remove ${WORKTREE_DIR} --force`, { cwd: MAIN_CLONE, stdio: 'pipe' }) } catch { /* ok */ }
+    rmSync(WT_TEST_DIR, { recursive: true, force: true })
+  })
+
+  test('sandbox can write refs to shared git dir from worktree', async () => {
+    const callID = 'test-wt-ref-' + Date.now()
+
+    const hooks = await plugin({
+      directory: WORKTREE_DIR,
+      worktree: WORKTREE_DIR,
+      serverUrl: new URL('http://localhost:0'),
+    })
+
+    // Write a ref via git update-ref inside the sandbox
+    const argsRef = { command: 'git update-ref refs/remotes/sandbox-test/main HEAD' }
+    await hooks['tool.execute.before']?.({
+      tool: 'bash', callID, id: callID
+    } as any, { args: argsRef } as any)
+
+    const result = getResult(callID)
+    expect(result).toBeDefined()
+    expect(result!.exitCode).toBe(0)
+
+    // Verify the ref was actually written to the common git dir
+    // (read it from the host — the common git dir is the main clone's .git)
+    const refValue = execSync('git rev-parse refs/remotes/sandbox-test/main', {
+      cwd: MAIN_CLONE,
+      encoding: 'utf8',
+    }).trim()
+    const headValue = execSync('git rev-parse HEAD', {
+      cwd: MAIN_CLONE,
+      encoding: 'utf8',
+    }).trim()
+    expect(refValue).toBe(headValue)
+  }, 60000)
+
+  test('git fetch updates tracking refs inside sandbox worktree', async () => {
+    const callID = 'test-wt-fetch-' + Date.now()
+
+    const hooks = await plugin({
+      directory: WORKTREE_DIR,
+      worktree: WORKTREE_DIR,
+      serverUrl: new URL('http://localhost:0'),
+    })
+
+    // Run git fetch origin inside the sandbox (the bare repo is readable via $HOME:ro)
+    const argsRef = { command: 'git fetch origin' }
+    await hooks['tool.execute.before']?.({
+      tool: 'bash', callID, id: callID
+    } as any, { args: argsRef } as any)
+
+    const result = getResult(callID)
+    expect(result).toBeDefined()
+    expect(result!.exitCode).toBe(0)
+
+    // Verify origin/main (or origin/master) resolves from the worktree
+    // The ref should exist in the common git dir after fetch
+    let trackingRef: string | undefined
+    try {
+      trackingRef = execSync('git rev-parse origin/main', {
+        cwd: WORKTREE_DIR,
+        encoding: 'utf8',
+      }).trim()
+    } catch {
+      trackingRef = execSync('git rev-parse origin/master', {
+        cwd: WORKTREE_DIR,
+        encoding: 'utf8',
+      }).trim()
+    }
+    expect(trackingRef).toMatch(/^[0-9a-f]{40}$/)
+  }, 60000)
 })

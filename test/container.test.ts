@@ -1,6 +1,9 @@
-import { describe, test, expect, mock } from 'bun:test'
+import { describe, test, expect, mock, beforeEach, afterAll } from 'bun:test'
 import type Dockerode from 'dockerode'
+import { mkdirSync, writeFileSync, rmSync } from 'fs'
+import path from 'path'
 import type { SessionState, ExecResult, DiffResult } from '../src/container'
+import type { SandboxConfig } from '../src/config'
 
 // ---------------------------------------------------------------------------
 // Mock helpers — build mock Docker objects without requiring a daemon
@@ -92,9 +95,12 @@ mock.module('../src/docker', () => ({
   createNetwork: createNetworkMock,
 }))
 
+mock.module('../src/image', () => ({
+  ensureImage: mock(() => Promise.resolve('opencode-sandbox:local')),
+}))
 
 // Dynamic import AFTER mocking
-const { exec, inspect, approve, reject, teardown } = await import('../src/container')
+const { exec, inspect, approve, reject, teardown, init } = await import('../src/container')
 
 describe('exec', () => {
   test('delegates to docker.execCommand with sh -c wrapper', async () => {
@@ -178,5 +184,88 @@ describe('teardown', () => {
     expect(container.remove).toHaveBeenCalled()
     expect(network.remove).toHaveBeenCalled()
     expect(cleanupMock).toHaveBeenCalled()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// init() — git worktree bind-mount tests
+// ---------------------------------------------------------------------------
+
+const TEST_TMPDIR = '/tmp/oc-container-unit-' + Date.now()
+
+function makeSandboxConfig(overrides?: Partial<SandboxConfig>): SandboxConfig {
+  return {
+    network: { observe: false, allow: [], allow_methods: [], allow_graphql_queries: true },
+    filesystem: { inherit_permissions: true, allow_write: [], deny_read: [] },
+    auto_allow_clean: true,
+    docker: { image: 'opencode-sandbox:local', gpu: false },
+    verbose: false,
+    ...overrides,
+  }
+}
+
+afterAll(() => {
+  rmSync(TEST_TMPDIR, { recursive: true, force: true })
+})
+
+describe('init — git worktree bind mounts', () => {
+  beforeEach(() => {
+    execCommandMock.mockClear()
+    getChangesMock.mockClear()
+    commitContainerMock.mockClear()
+    createContainerMock.mockClear()
+    cleanupMock.mockClear()
+    createNetworkMock.mockClear()
+  })
+
+  test('worktree common git dir is mounted read-write', async () => {
+    // Set up a fake worktree: .git is a file pointing to the main repo's worktree dir
+    const mainRepo = path.join(TEST_TMPDIR, 'main-repo')
+    const worktreeGitDir = path.join(mainRepo, '.git', 'worktrees', 'my-wt')
+    const worktreeProject = path.join(TEST_TMPDIR, 'my-wt')
+
+    mkdirSync(worktreeGitDir, { recursive: true })
+    mkdirSync(worktreeProject, { recursive: true })
+    // The .git file in the worktree points to the worktree-specific gitdir
+    writeFileSync(path.join(worktreeProject, '.git'), `gitdir: ${worktreeGitDir}\n`)
+
+    const state = await init(
+      {} as Dockerode,
+      worktreeProject,
+      '/home/user',
+      'wt-test-' + Date.now(),
+      makeSandboxConfig(),
+    )
+
+    // The common git dir (main-repo/.git) should be in the binds
+    const commonGitDir = path.join(mainRepo, '.git')
+    const gitBind = state.binds.find(b => b.startsWith(commonGitDir + ':'))
+    expect(gitBind).toBeDefined()
+    // Must NOT have :ro suffix — git needs write access for refs/remotes, packed-refs
+    expect(gitBind).toBe(`${commonGitDir}:${commonGitDir}`)
+    expect(gitBind).not.toContain(':ro')
+  })
+
+  test('non-worktree .git directory does not add extra git bind', async () => {
+    // Set up a normal repo: .git is a directory, not a file
+    const normalProject = path.join(TEST_TMPDIR, 'normal-repo')
+    const dotGitDir = path.join(normalProject, '.git')
+
+    mkdirSync(dotGitDir, { recursive: true })
+
+    const state = await init(
+      {} as Dockerode,
+      normalProject,
+      '/home/user',
+      'normal-test-' + Date.now(),
+      makeSandboxConfig(),
+    )
+
+    // Should only have $HOME:ro and $project:rw — no extra git bind
+    // (The binds array will have 2 entries: home + project)
+    const nonStandardBinds = state.binds.filter(
+      b => !b.startsWith('/home/user:') && !b.startsWith(normalProject + ':')
+    )
+    expect(nonStandardBinds).toHaveLength(0)
   })
 })
